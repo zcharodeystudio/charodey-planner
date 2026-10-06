@@ -6,7 +6,7 @@
 - `backend/` — API на **NestJS + MongoDB**. Swagger в режиме разработки: `http://localhost:3000/api`.
 - `packages/validation/` — общие правила полей (`@charodey/validation`) для клиента и сервера.
 
-Ничего из этого репозитория не отправлялось на GitHub. Команды ниже только локальные.
+Команды ниже запускают проект на этом компьютере. Выкладка на Atlas и Render и сборка APK описаны в [DEPLOY.md](DEPLOY.md). API уже отвечает на [https://charodey-planner-api.onrender.com/health](https://charodey-planner-api.onrender.com/health).
 
 ---
 
@@ -174,7 +174,7 @@ cd frontend
 npm run build:web
 ```
 
-Статика появится в `frontend/dist`. Это проверка, что клиент собирается. Для телефона нужен не этот каталог, а APK (следующий раздел).
+Статика появится в `frontend/dist`. Это проверка, что клиент собирается. Для телефона нужен APK, шаги в [DEPLOY.md](DEPLOY.md).
 
 Проверка типов клиента:
 
@@ -185,50 +185,9 @@ npm run typecheck
 
 ---
 
-## Позже: API на новом сервисе Render
+## Телефон, Render и база
 
-Пушить сейчас не нужно. Когда решите выкладывать:
-
-1. Закоммитьте проект и запушьте `https://github.com/zcharodeystudio/charodey-planner` (или новый репозиторий).
-2. Создайте бесплатный кластер MongoDB Atlas и пользователя базы. В Network Access для проверки можно временно разрешить `0.0.0.0/0`.
-3. На [render.com](https://render.com): **New → Blueprint**, подключите репозиторий. Файл `render.yaml` уже описывает сервис `charodey-planner-api`.
-   Либо вручную: **New → Web Service → Docker**, Dockerfile `./Dockerfile`, context `.`, регион Frankfurt, health check `/health`.
-4. В Environment задайте:
-   - `MONGO_URI` — строка из Atlas
-   - `MONGO_DB_NAME` = `charodey`
-   - `JWT_SECRET` — случайная строка **не короче 32 символов** (если Blueprint сгенерировал короткую, замените)
-   - `NODE_ENV` = `production`
-   - `TRUST_PROXY` = `1`
-5. Дождитесь деплоя. Откройте `https://<имя>.onrender.com/health`. Должно быть `"mongo": "connected"`.
-6. Этот URL запишите в `frontend/.env` как `EXPO_PUBLIC_API_URL` и в `frontend/eas.json` вместо `https://charodey-planner-api.onrender.com`, если имя сервиса будет другим.
-7. Перезапустите Expo.
-
-На бесплатном плане Render сервис засыпает. Первый запрос после паузы может идти около минуты.
-
-Swagger на проде выключен.
-
----
-
-## Позже: APK
-
-1. Аккаунт на [expo.dev](https://expo.dev).
-2. Из `frontend`:
-
-```powershell
-npx eas-cli login
-npx eas-cli init
-npm run eas:preview:android
-```
-
-`eas init` привяжет проект и допишет `projectId` в `app.json`. Сборка идёт в облаке Expo, в конце будет ссылка на APK.
-
-Локальная установка на телефон через USB (нужны Android Studio, `JAVA_HOME` на JDK из Android Studio и отладка по USB):
-
-```powershell
-cd frontend
-npx expo prebuild --platform android
-npx expo run:android --device
-```
+Полная инструкция: [DEPLOY.md](DEPLOY.md).
 
 ---
 

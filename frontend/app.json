@@ -16,7 +16,9 @@
     },
     "android": {
       "package": "com.charodey.planner",
-      "permissions": ["android.permission.POST_NOTIFICATIONS"],
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#22C55E",
         "foregroundImage": "./assets/icon.png"
@@ -49,6 +51,13 @@
     ],
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "39cbce04-4297-4ad0-9ed6-046ab091a22e"
+      }
+    },
+    "owner": "zcharodeystudios-team"
   }
 }
