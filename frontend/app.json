@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Charodey Planner",
+    "slug": "charodey-planner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "charodey",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.charodey.planner",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Charodey Planner отправляет напоминания о задачах."
+      }
+    },
+    "android": {
+      "package": "com.charodey.planner",
+      "permissions": ["android.permission.POST_NOTIFICATIONS"],
+      "adaptiveIcon": {
+        "backgroundColor": "#22C55E",
+        "foregroundImage": "./assets/icon.png"
+      }
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#22C55E",
+          "defaultChannel": "default"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

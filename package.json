@@ -1,0 +1,20 @@
+{
+  "name": "charodey-planner",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "packages/validation"
+  ],
+  "scripts": {
+    "build:validation": "npm run build --prefix packages/validation",
+    "build:backend": "npm run build:validation && npm run build --prefix backend",
+    "build": "npm run build:backend",
+    "start:backend": "npm run start:dev --prefix backend",
+    "start:frontend": "npm run start --prefix frontend"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

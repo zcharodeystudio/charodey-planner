@@ -1,0 +1,26 @@
+# Новый Web Service на Render: New → Blueprint и укажите этот репозиторий,
+# либо New → Web Service → Docker, Dockerfile path: ./Dockerfile, context: .
+services:
+  - type: web
+    name: charodey-planner-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: charodey
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TRUST_PROXY
+        value: '1'
+      - key: JWT_EXPIRES_IN
+        value: '900'
+      - key: REFRESH_TOKEN_TTL_DAYS
+        value: '180'
