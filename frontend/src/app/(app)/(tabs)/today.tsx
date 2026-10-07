@@ -1,53 +1,112 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useEffect, useState } from 'react';
-import { api } from '@/api/client';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { useAndroidBack } from '@/lib/android-back';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { api, type TaskListItem } from '@/api/client';
+import { PeriodSheet } from '@/components/period-sheet';
 import { TaskList } from '@/components/task-list';
 import { Screen } from '@/components/ui/screen';
-import { formatLongDate, todayISO, weekDays } from '@/lib/dates';
+import { formatLongDate, todayISO } from '@/lib/dates';
 import { useSelectedDate } from '@/store/date-context';
+import { SORTS, usePlanner } from '@/store/planner-context';
+import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
 export default function TodayScreen() {
-  const { date, setDate } = useSelectedDate();
-  const days = weekDays(date);
-  const [marked, setMarked] = useState<Set<string>>(new Set());
+  const theme = useTheme();
+  const planner = usePlanner();
+  const { date } = useSelectedDate();
+  const [open, setOpen] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [lists, setLists] = useState<TaskListItem[]>([]);
 
-  useEffect(() => {
-    let active = true;
-    api
-      .taskDates(days[0], days[6])
-      .then((result) => {
-        if (active) setMarked(new Set(result.dates));
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [days[0], days[6]]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      api
+        .lists()
+        .then((next) => {
+          if (active) setLists(next);
+        })
+        .catch(() => undefined);
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
+
+  const onHardwareBack = useCallback(() => {
+    if (menu) {
+      setMenu(false);
+      return true;
+    }
+    if (open) {
+      setOpen(false);
+      return true;
+    }
+    return false;
+  }, [menu, open]);
+  useAndroidBack(onHardwareBack);
+
+  const listName = lists.find((list) => list.id === planner.listId)?.name;
+  const period =
+    planner.range === 'all'
+      ? 'Все'
+      : planner.range === 'week'
+      ? 'Неделя'
+      : planner.range === 'month'
+        ? 'Месяц'
+        : planner.range === 'custom' && planner.rangeFrom && planner.rangeTo
+          ? `${formatLongDate(planner.rangeFrom)} — ${formatLongDate(planner.rangeTo)}`
+          : date === todayISO()
+            ? 'Сегодня'
+            : formatLongDate(date);
+  const title =
+    planner.scope === 'favorites' ? 'Избранное' : planner.scope === 'overdue' ? 'Просроченные' : planner.scope === 'untimed' ? 'Без времени' : listName || 'Задачи';
 
   return (
     <Screen>
       <View style={styles.header}>
-        <Text style={styles.kicker}>{date === todayISO() ? 'Сегодня' : 'Выбранный день'}</Text>
-        <Text style={styles.title}>{formatLongDate(date)}</Text>
+        <View style={styles.headerCopy}>
+          <Text style={[styles.kicker, { color: theme.primary }]}>{period}</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
+        <View style={styles.actions}>
+          <Pressable accessibilityLabel="Период" onPress={() => setOpen(true)} hitSlop={10} style={styles.menu}>
+            <Ionicons name="calendar-outline" size={24} color={colors.text} />
+          </Pressable>
+          <Pressable accessibilityLabel="Сортировка" onPress={() => setMenu(true)} hitSlop={10} style={styles.menu}>
+            <Ionicons name="ellipsis-vertical" size={22} color={colors.text} />
+          </Pressable>
+        </View>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.week}>
-        {days.map((day) => {
-          const active = day === date;
-          return (
-            <Pressable key={day} onPress={() => setDate(day)} style={[styles.day, active && styles.dayActive]}>
-              <Text style={[styles.dayNum, active && styles.dayNumActive]}>{Number(day.slice(-2))}</Text>
-              {marked.has(day) ? <View style={[styles.dot, active && styles.dotActive]} /> : <View style={styles.dotSpace} />}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-      {date !== todayISO() ? (
-        <Pressable onPress={() => setDate(todayISO())} style={styles.backToday}>
-          <Text style={styles.backTodayText}>Вернуться к сегодня</Text>
-        </Pressable>
+      <TaskList date={date} tools />
+      <PeriodSheet visible={open} onClose={() => setOpen(false)} />
+      {menu ? (
+        <View style={styles.backdrop}>
+          <Pressable style={styles.dismiss} onPress={() => setMenu(false)} />
+          <View style={styles.dropdown}>
+            {SORTS.map((item) => {
+              const active = planner.sort === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => {
+                    planner.setSort(item.id);
+                    setMenu(false);
+                  }}
+                  style={[styles.dropdownItem, active && { backgroundColor: theme.primaryMuted }]}
+                >
+                  <Text style={[styles.dropdownText, active && { color: theme.primaryPressed }]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       ) : null}
-      <TaskList date={date} />
     </Screen>
   );
 }
@@ -56,64 +115,37 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    gap: 2,
+    paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
-  kicker: {
-    color: colors.primaryPressed,
-    fontWeight: '700',
-    fontSize: 13,
+  headerCopy: { flex: 1, gap: 2 },
+  actions: { flexDirection: 'row', alignItems: 'center' },
+  menu: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  kicker: { fontWeight: '700', fontSize: 13 },
+  title: { fontSize: 28, fontWeight: '800', color: colors.text },
+  backdrop: {
+    position: 'fixed' as 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1000,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  week: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.sm,
-  },
-  day: {
-    width: 46,
-    height: 58,
-    borderRadius: radii.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
+  dismiss: { ...StyleSheet.absoluteFill },
+  dropdown: {
+    position: 'absolute',
+    top: 56,
+    right: spacing.lg,
+    minWidth: 180,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.xs,
+    gap: 2,
   },
-  dayActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  dayNum: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  dayNumActive: {
-    color: colors.white,
-  },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: radii.full,
-    backgroundColor: colors.primary,
-    marginTop: 4,
-  },
-  dotActive: {
-    backgroundColor: colors.white,
-  },
-  dotSpace: {
-    height: 9,
-  },
-  backToday: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
-  },
-  backTodayText: {
-    color: colors.primaryPressed,
-    fontWeight: '700',
-  },
+  dropdownItem: { paddingHorizontal: spacing.md, paddingVertical: 12, borderRadius: radii.md, marginHorizontal: spacing.xs },
+  dropdownText: { fontSize: 15, fontWeight: '700', color: colors.ink },
 });

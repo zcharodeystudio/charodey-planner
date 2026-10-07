@@ -1,5 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 import { colors, radii, spacing } from '@/theme/theme';
+import { useTheme } from '@/store/theme-context';
 
 type Variant = 'primary' | 'secondary' | 'danger';
 
@@ -12,6 +13,7 @@ type ButtonProps = {
 };
 
 export function Button({ title, onPress, loading, disabled, variant = 'primary' }: ButtonProps) {
+  const theme = useTheme();
   const blocked = disabled || loading;
   return (
     <Pressable
@@ -20,7 +22,7 @@ export function Button({ title, onPress, loading, disabled, variant = 'primary' 
       disabled={blocked}
       style={({ pressed }) => [
         styles.base,
-        variant === 'primary' && styles.primary,
+        variant === 'primary' && { backgroundColor: theme.primary },
         variant === 'secondary' && styles.secondary,
         variant === 'danger' && styles.danger,
         pressed && !blocked && styles.pressed,
@@ -28,12 +30,12 @@ export function Button({ title, onPress, loading, disabled, variant = 'primary' 
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? colors.white : colors.primary} />
+        <ActivityIndicator color={variant === 'primary' ? theme.onPrimary : theme.primary} />
       ) : (
         <Text
           style={[
             styles.label,
-            variant === 'primary' && styles.primaryLabel,
+            variant === 'primary' && { color: theme.onPrimary },
             variant === 'secondary' && styles.secondaryLabel,
             variant === 'danger' && styles.dangerLabel,
           ]}
@@ -53,11 +55,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
   },
-  primary: {
-    backgroundColor: colors.primary,
-  },
   secondary: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -75,11 +74,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  primaryLabel: {
-    color: colors.white,
-  },
   secondaryLabel: {
-    color: colors.text,
+    color: colors.ink,
   },
   dangerLabel: {
     color: colors.error,

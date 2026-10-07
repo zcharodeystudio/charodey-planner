@@ -85,6 +85,27 @@ export function monthCells(year: number, month: number) {
   return cells;
 }
 
+export type ViewRange = 'all' | 'day' | 'week' | 'month' | 'custom';
+
+export function rangeBounds(anchor: string, range: ViewRange, customFrom?: string | null, customTo?: string | null) {
+  const date = parseISODate(anchor);
+  if (range === 'all') return { from: '2000-01-01', to: '2100-12-31' };
+  if (range === 'custom' && customFrom && customTo) {
+    return customFrom <= customTo ? { from: customFrom, to: customTo } : { from: customTo, to: customFrom };
+  }
+  if (range === 'week') {
+    const from = startOfWeek(anchor);
+    return { from, to: shiftDays(from, 6) };
+  }
+  if (range === 'month') {
+    return {
+      from: formatISODate(new Date(date.getFullYear(), date.getMonth(), 1)),
+      to: formatISODate(new Date(date.getFullYear(), date.getMonth() + 1, 0)),
+    };
+  }
+  return { from: anchor, to: anchor };
+}
+
 export function formatTime(iso: string) {
   const date = new Date(iso);
   const hours = String(date.getHours()).padStart(2, '0');

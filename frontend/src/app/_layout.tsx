@@ -1,23 +1,38 @@
-import { Stack, useRouter } from 'expo-router';
+import { Href, Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { BackHandler, Platform, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastHost } from '@/components/toast-host';
 import { configureNotifications } from '@/lib/notifications';
+import { colors } from '@/theme/theme';
 import { AuthProvider, useAuth } from '@/store/auth-context';
+import { ThemeProvider } from '@/store/theme-context';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function AndroidBackNavigation() {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!router.canGoBack()) return false;
-      router.back();
+      const path = pathnameRef.current;
+      if (path.includes('/task') || path.includes('/favorites') || path.includes('/login') || path.includes('/register')) {
+        if (router.canGoBack()) router.back();
+        else if (path.includes('/login') || path.includes('/register')) router.replace('/(auth)/welcome' as Href);
+        else router.replace('/(app)/(tabs)/today' as Href);
+        return true;
+      }
+      if (path.includes('/today')) {
+        router.navigate('/(app)/(tabs)/profile' as Href);
+        return true;
+      }
       return true;
     });
     return () => subscription.remove();
@@ -41,6 +56,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
+        <ThemeProvider>
         <AuthProvider>
           <SplashGate>
             <AndroidBackNavigation />
@@ -53,11 +69,12 @@ export default function RootLayout() {
             <ToastHost />
           </SplashGate>
         </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { flex: 1, backgroundColor: colors.background },
 });

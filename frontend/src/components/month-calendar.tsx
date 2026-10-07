@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { WEEKDAYS, formatMonthTitle, monthCells, todayISO } from '@/lib/dates';
+import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
 type MonthCalendarProps = {
@@ -12,21 +13,25 @@ type MonthCalendarProps = {
   onSelect: (date: string) => void;
   onPrev: () => void;
   onNext: () => void;
+  embedded?: boolean;
+  rangeStart?: string | null;
+  rangeEnd?: string | null;
 };
 
-export function MonthCalendar({ year, month, selected, marked, onSelect, onPrev, onNext }: MonthCalendarProps) {
+export function MonthCalendar({ year, month, selected, marked, onSelect, onPrev, onNext, embedded, rangeStart, rangeEnd }: MonthCalendarProps) {
+  const theme = useTheme();
   const today = todayISO();
   const cells = monthCells(year, month);
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, embedded && styles.embedded]}>
       <View style={styles.header}>
         <Pressable onPress={onPrev} hitSlop={10} style={styles.arrow}>
-          <Ionicons name="chevron-back" size={22} color={colors.text} />
+          <Ionicons name="chevron-back" size={22} color={colors.ink} />
         </Pressable>
         <Text style={styles.title}>{formatMonthTitle(year, month)}</Text>
         <Pressable onPress={onNext} hitSlop={10} style={styles.arrow}>
-          <Ionicons name="chevron-forward" size={22} color={colors.text} />
+          <Ionicons name="chevron-forward" size={22} color={colors.ink} />
         </Pressable>
       </View>
       <View style={styles.weekdays}>
@@ -39,14 +44,23 @@ export function MonthCalendar({ year, month, selected, marked, onSelect, onPrev,
       <Animated.View key={`${year}-${month}`} entering={FadeIn.duration(220)} style={styles.grid}>
         {cells.map((date, index) => {
           if (!date) return <View key={`empty-${index}`} style={styles.cell} />;
-          const active = date === selected;
+          const hasRange = Boolean(rangeStart && rangeEnd);
+          const edge = hasRange && (date === rangeStart || date === rangeEnd);
+          const between = hasRange && date > (rangeStart as string) && date < (rangeEnd as string);
+          const active = hasRange ? edge : rangeStart ? date === rangeStart : date === selected;
           const isToday = date === today;
           return (
-            <Pressable key={date} onPress={() => onSelect(date)} style={[styles.cell, active && styles.cellActive]}>
-              <Text style={[styles.day, active && styles.dayActive, isToday && !active && styles.dayToday]}>
+            <Pressable
+              key={date}
+              accessibilityRole="button"
+              accessibilityLabel={String(Number(date.slice(-2)))}
+              onPress={() => onSelect(date)}
+              style={[styles.cell, between && { backgroundColor: theme.primaryMuted }, active && { backgroundColor: theme.primary }]}
+            >
+              <Text style={[styles.day, active && { color: theme.onPrimary }, between && { color: theme.primaryPressed }, isToday && !active && !between && { color: theme.primaryPressed }]}>
                 {Number(date.slice(-2))}
               </Text>
-              {marked.has(date) ? <View style={[styles.dot, active && styles.dotActive]} /> : <View style={styles.dotSpace} />}
+              {marked.has(date) ? <View style={[styles.dot, { backgroundColor: theme.primary }, active && styles.dotActive]} /> : <View style={styles.dotSpace} />}
             </Pressable>
           );
         })}
@@ -58,7 +72,15 @@ export function MonthCalendar({ year, month, selected, marked, onSelect, onPrev,
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
     gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  embedded: {
+    paddingHorizontal: 0,
   },
   header: {
     flexDirection: 'row',
@@ -68,7 +90,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.ink,
     textTransform: 'capitalize',
   },
   arrow: {
@@ -83,7 +105,7 @@ const styles = StyleSheet.create({
   weekday: {
     flex: 1,
     textAlign: 'center',
-    color: colors.textSecondary,
+    color: colors.inkMuted,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -98,29 +120,19 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radii.md,
   },
-  cellActive: {
-    backgroundColor: colors.primary,
-  },
   day: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.text,
-  },
-  dayActive: {
-    color: colors.white,
-  },
-  dayToday: {
-    color: colors.primaryPressed,
+    color: colors.ink,
   },
   dot: {
     width: 5,
     height: 5,
     borderRadius: radii.full,
-    backgroundColor: colors.primary,
     marginTop: 3,
   },
   dotActive: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.ink,
   },
   dotSpace: {
     height: 8,

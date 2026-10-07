@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInRight } from 'react-native-reanimated';
 import { Screen } from '@/components/ui/screen';
+import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
 type AuthScreenProps = {
@@ -25,6 +26,7 @@ export function AuthScreen({
   footer,
   children,
 }: AuthScreenProps) {
+  const theme = useTheme();
   return (
     <Screen>
       <View style={styles.body}>
@@ -48,7 +50,7 @@ export function AuthScreen({
         {step && totalSteps ? (
           <View style={styles.progress}>
             {Array.from({ length: totalSteps }, (_, index) => (
-              <View key={index} style={[styles.bar, index < step ? styles.barActive : null]} />
+              <View key={index} style={[styles.bar, index < step ? { backgroundColor: theme.primary } : null]} />
             ))}
           </View>
         ) : null}
@@ -73,10 +75,11 @@ export function AuthFooter({
   action: string;
   onPress: () => void;
 }) {
+  const theme = useTheme();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.footerLink}>
       <Text style={styles.prompt}>
-        {prompt} <Text style={styles.action}>{action}</Text>
+        {prompt} <Text style={[styles.action, { color: theme.primary }]}>{action}</Text>
       </Text>
     </Pressable>
   );
@@ -111,9 +114,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     backgroundColor: colors.border,
   },
-  barActive: {
-    backgroundColor: colors.primary,
-  },
   content: {
     flex: 1,
     gap: spacing.md,
@@ -142,7 +142,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   action: {
-    color: colors.primary,
     fontWeight: '700',
   },
 });

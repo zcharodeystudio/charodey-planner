@@ -8,6 +8,16 @@ export class TasksByDateQuery {
   date: string;
 }
 
+export class TasksRangeQuery {
+  @IsString()
+  @Matches(DAY, { message: 'Дата в формате ГГГГ-ММ-ДД' })
+  from: string;
+
+  @IsString()
+  @Matches(DAY, { message: 'Дата в формате ГГГГ-ММ-ДД' })
+  to: string;
+}
+
 export class TaskDatesQuery {
   @IsString()
   @Matches(DAY, { message: 'Дата в формате ГГГГ-ММ-ДД' })

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { Input, PasswordInput } from '@/components/ui/input';
 import { getErrorMessage } from '@/lib/errors';
+import { getLastTab, tabHref } from '@/lib/last-tab';
 import { showToast } from '@/lib/toast';
 import { useAuth } from '@/store/auth-context';
 import { colors, spacing } from '@/theme/theme';
@@ -50,7 +51,7 @@ export default function RegisterScreen() {
     setGeneralError(undefined);
     try {
       await register(parsed.data);
-      router.replace('/(app)/(tabs)/today' as Href);
+      router.replace(tabHref(await getLastTab()) as Href);
     } catch (error) {
       const message = getErrorMessage(error);
       setGeneralError(message);

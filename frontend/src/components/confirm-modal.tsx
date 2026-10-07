@@ -38,7 +38,7 @@ export function ConfirmModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(26, 31, 28, 0.4)',
+    backgroundColor: 'rgba(26, 8, 48, 0.62)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.lg,
@@ -46,7 +46,9 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: radii.xl,
     padding: spacing.lg,
     gap: spacing.md,
@@ -54,12 +56,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.ink,
   },
   message: {
     fontSize: 15,
     lineHeight: 21,
-    color: colors.textSecondary,
+    color: colors.inkMuted,
   },
   actions: {
     gap: spacing.sm,

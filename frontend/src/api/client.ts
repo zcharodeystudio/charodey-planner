@@ -14,23 +14,49 @@ export type Session = {
   user: User;
 };
 
+export type TaskStep = { id: string; title: string; done: boolean };
+export type TaskFile = { name: string; mimeType: string; data: string };
+export type RepeatMode = 'none' | 'daily' | 'workdays' | 'weekdays' | 'weekly' | 'yearly' | 'custom';
+
 export type Task = {
   id: string;
   title: string;
   note: string;
   date: string;
+  time: string | null;
   remindAt: string | null;
   done: boolean;
+  important: boolean;
+  isEvent: boolean;
+  favorite: boolean;
+  position: number;
+  repeat: RepeatMode;
+  repeatDays: number[];
+  steps: TaskStep[];
+  files: TaskFile[];
+  listId: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
+export type TaskListItem = { id: string; name: string; color: string };
+
 export type TaskPayload = {
-  title: string;
+  title?: string;
   note?: string;
-  date: string;
+  date?: string;
+  time?: string | null;
   remindAt?: string | null;
   done?: boolean;
+  important?: boolean;
+  isEvent?: boolean;
+  favorite?: boolean;
+  position?: number;
+  repeat?: RepeatMode;
+  repeatDays?: number[];
+  steps?: TaskStep[];
+  files?: TaskFile[];
+  listId?: string | null;
 };
 
 const ACCESS = 'accessToken';
@@ -154,6 +180,12 @@ export const api = {
   listTasks(date: string) {
     return request<Task[]>(`/tasks?date=${date}`);
   },
+  taskRange(from: string, to: string) {
+    return request<Task[]>(`/tasks/range?from=${from}&to=${to}`);
+  },
+  favorites() {
+    return request<Task[]>('/tasks/favorites');
+  },
   taskDates(from: string, to: string) {
     return request<{ dates: string[] }>(`/tasks/dates?from=${from}&to=${to}`);
   },
@@ -163,10 +195,19 @@ export const api = {
   createTask(body: TaskPayload) {
     return request<Task>('/tasks', { method: 'POST', body: JSON.stringify(body) });
   },
-  updateTask(id: string, body: Partial<TaskPayload>) {
+  updateTask(id: string, body: TaskPayload) {
     return request<Task>(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
   },
   deleteTask(id: string) {
     return request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' });
+  },
+  lists() {
+    return request<TaskListItem[]>('/lists');
+  },
+  createList(body: { name: string; color: string }) {
+    return request<TaskListItem>('/lists', { method: 'POST', body: JSON.stringify(body) });
+  },
+  deleteList(id: string) {
+    return request<{ ok: boolean }>(`/lists/${id}`, { method: 'DELETE' });
   },
 };

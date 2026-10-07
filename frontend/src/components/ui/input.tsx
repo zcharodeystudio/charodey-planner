@@ -14,7 +14,7 @@ export function Input({ label, error, onEnter, ...props }: InputProps) {
     <View style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        placeholderTextColor={colors.textSecondary}
+        placeholderTextColor={colors.inkMuted}
         style={[styles.input, error ? styles.inputError : null]}
         onSubmitEditing={onEnter}
         {...props}
@@ -31,14 +31,14 @@ export function PasswordInput({ label, error, onEnter, ...props }: InputProps) {
       <Text style={styles.label}>{label}</Text>
       <View>
         <TextInput
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={colors.inkMuted}
           style={[styles.input, styles.password, error ? styles.inputError : null]}
           secureTextEntry={!visible}
           onSubmitEditing={onEnter}
           {...props}
         />
         <Pressable onPress={() => setVisible((value) => !value)} style={styles.eye} hitSlop={8}>
-          <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textSecondary} />
+          <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.inkMuted} />
         </Pressable>
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -62,8 +62,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.white,
+    color: colors.ink,
+    backgroundColor: colors.surface,
   },
   password: {
     paddingRight: 48,

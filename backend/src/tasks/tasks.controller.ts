@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateTaskDto } from './dto/create-task.dto';
-import { TaskDatesQuery, TasksByDateQuery } from './dto/tasks-query.dto';
+import { TaskDatesQuery, TasksByDateQuery, TasksRangeQuery } from './dto/tasks-query.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { TasksService } from './tasks.service';
 
@@ -23,6 +23,16 @@ export class TasksController {
   @Get('dates')
   dates(@Req() req: AuthedRequest, @Query() query: TaskDatesQuery) {
     return this.tasksService.dates(req.user.id, query.from, query.to);
+  }
+
+  @Get('range')
+  range(@Req() req: AuthedRequest, @Query() query: TasksRangeQuery) {
+    return this.tasksService.range(req.user.id, query.from, query.to);
+  }
+
+  @Get('favorites')
+  favorites(@Req() req: AuthedRequest) {
+    return this.tasksService.favorites(req.user.id);
   }
 
   @Get(':id')

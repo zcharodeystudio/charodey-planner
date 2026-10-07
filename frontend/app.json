@@ -20,7 +20,7 @@
         "android.permission.POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#22C55E",
+        "backgroundColor": "#3B1464",
         "foregroundImage": "./assets/icon.png"
       }
     },
@@ -34,7 +34,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FFFFFF",
+          "backgroundColor": "#3B1464",
           "image": "./assets/icon.png",
           "imageWidth": 180,
           "resizeMode": "contain"
@@ -44,7 +44,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#22C55E",
+          "color": "#E8B423",
           "defaultChannel": "default"
         }
       ]
