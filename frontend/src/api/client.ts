@@ -1,6 +1,38 @@
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import { deleteItem, getItem, setItem } from '@/lib/storage';
 
-const API_URL = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+function resolveApiUrl() {
+  const configured = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch {
+    return configured;
+  }
+  if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return configured;
+  if (Platform.OS === 'web') return configured;
+
+  const android = Platform.constants as { Fingerprint?: string; Model?: string };
+  const looksLikeEmulator = /generic|emulator|sdk_gphone/i.test(`${android.Fingerprint ?? ''} ${android.Model ?? ''}`);
+  if (Platform.OS === 'android' && looksLikeEmulator) {
+    url.hostname = '10.0.2.2';
+    return url.toString().replace(/\/$/, '');
+  }
+
+  const packagerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (packagerHost && packagerHost !== 'localhost' && packagerHost !== '127.0.0.1') {
+    url.hostname = packagerHost;
+    return url.toString().replace(/\/$/, '');
+  }
+  if (Platform.OS === 'android') {
+    url.hostname = '10.0.2.2';
+    return url.toString().replace(/\/$/, '');
+  }
+  return configured;
+}
+
+const API_URL = resolveApiUrl();
 
 export type User = {
   id: string;

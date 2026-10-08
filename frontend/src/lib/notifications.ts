@@ -1,8 +1,25 @@
+import { isRunningInExpoGo } from 'expo';
 import { Platform } from 'react-native';
 import { deleteItem, getItem, setItem } from '@/lib/storage';
 import type { Task } from '@/api/client';
 
 const MAP_KEY = 'notificationIds';
+
+function notificationsSupported() {
+  if (Platform.OS === 'web') return false;
+  // Importing expo-notifications registers for remote push and throws in Expo Go on Android.
+  if (Platform.OS === 'android' && isRunningInExpoGo()) return false;
+  return true;
+}
+
+async function loadNotifications() {
+  if (!notificationsSupported()) return null;
+  try {
+    return await import('expo-notifications');
+  } catch {
+    return null;
+  }
+}
 
 type IdMap = Record<string, string>;
 
@@ -21,8 +38,8 @@ async function writeMap(map: IdMap) {
 }
 
 export async function syncTaskReminder(task: Task) {
-  if (Platform.OS === 'web') return 'web' as const;
-  const Notifications = await import('expo-notifications');
+  const Notifications = await loadNotifications();
+  if (!Notifications) return 'skipped' as const;
   const map = await readMap();
   const previous = map[task.id];
   if (previous) {
@@ -71,11 +88,11 @@ export async function syncTaskReminder(task: Task) {
 }
 
 export async function cancelTaskReminder(taskId: string) {
-  if (Platform.OS === 'web') return;
   const map = await readMap();
   const previous = map[taskId];
   if (!previous) return;
-  const Notifications = await import('expo-notifications');
+  const Notifications = await loadNotifications();
+  if (!Notifications) return;
   await Notifications.cancelScheduledNotificationAsync(previous).catch(() => undefined);
   delete map[taskId];
   if (Object.keys(map).length === 0) await deleteItem(MAP_KEY);
@@ -83,8 +100,8 @@ export async function cancelTaskReminder(taskId: string) {
 }
 
 export async function configureNotifications() {
-  if (Platform.OS === 'web') return;
-  const Notifications = await import('expo-notifications');
+  const Notifications = await loadNotifications();
+  if (!Notifications || typeof Notifications.setNotificationHandler !== 'function') return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowBanner: true,
