@@ -63,10 +63,12 @@ export class CreateTaskDto {
   @MaxLength(NOTE_MAX, { message: `Заметка должна быть не длиннее ${NOTE_MAX} символов` })
   note?: string;
 
-  @ApiProperty({ example: '2026-10-06' })
+  @ApiPropertyOptional({ nullable: true, example: '2026-10-06' })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Дата в формате ГГГГ-ММ-ДД' })
-  date: string;
+  date?: string | null;
 
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
@@ -131,4 +133,20 @@ export class CreateTaskDto {
   @ValidateIf((_, value) => value !== null)
   @IsMongoId()
   listId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Дата в формате ГГГГ-ММ-ДД' })
+  dueDate?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsMongoId()
+  boardId?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @MaxLength(40)
+  statusId?: string | null;
 }

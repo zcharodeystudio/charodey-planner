@@ -3,7 +3,8 @@ import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useAndroidBack } from '@/lib/android-back';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { api, type TaskListItem } from '@/api/client';
+import { api, type NoteItem, type ProjectItem, type TaskListItem } from '@/api/client';
+import { NOTE_COLORS } from '@/lib/note-colors';
 import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { getErrorMessage } from '@/lib/errors';
@@ -21,25 +22,43 @@ export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const initial = user?.name.trim().charAt(0).toUpperCase() || '?';
   const [lists, setLists] = useState<TaskListItem[]>([]);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [notes, setNotes] = useState<NoteItem[]>([]);
   const [creating, setCreating] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [name, setName] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [color, setColor] = useState(LIST_COLORS[0]);
+  const [projectColor, setProjectColor] = useState(LIST_COLORS[1]);
 
   const loadLists = useCallback(() => {
     void api
       .lists()
       .then(setLists)
       .catch(() => undefined);
+    void api
+      .projects()
+      .then(setProjects)
+      .catch(() => undefined);
+    void api
+      .notes()
+      .then(setNotes)
+      .catch(() => undefined);
   }, []);
 
   useFocusEffect(loadLists);
 
   const onHardwareBack = useCallback(() => {
+    if (creatingProject) {
+      setCreatingProject(false);
+      setProjectName('');
+      return true;
+    }
     if (!creating) return false;
     setCreating(false);
     setName('');
     return true;
-  }, [creating]);
+  }, [creating, creatingProject]);
   useAndroidBack(onHardwareBack);
 
   const openTasks = (scope: TaskScope, listId: string | null) => {
@@ -55,7 +74,23 @@ export default function ProfileScreen() {
       setLists((current) => [...current, created]);
       setName('');
       setCreating(false);
+      showToast('Список создан');
       openTasks('all', created.id);
+    } catch (error) {
+      showToast(getErrorMessage(error));
+    }
+  };
+
+  const createProject = async () => {
+    const nextName = projectName.trim();
+    if (!nextName) return;
+    try {
+      const created = await api.createProject({ name: nextName, color: projectColor });
+      setProjects((current) => [...current, created]);
+      setProjectName('');
+      setCreatingProject(false);
+      showToast('Проект создан');
+      router.push(`/(app)/project/${created.id}` as Href);
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -66,6 +101,7 @@ export default function ProfileScreen() {
       await api.deleteList(id);
       setLists((current) => current.filter((item) => item.id !== id));
       if (planner.listId === id) planner.apply({ listId: null, scope: 'all' });
+      showToast('Список удалён');
     } catch (error) {
       showToast(getErrorMessage(error));
     }
@@ -77,6 +113,17 @@ export default function ProfileScreen() {
         <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <Text style={styles.heading}>Профиль</Text>
           <View style={styles.card}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Выйти"
+              hitSlop={8}
+              onPress={() => {
+                void logout().then(() => router.replace('/(auth)/welcome' as Href));
+              }}
+              style={styles.logout}
+            >
+              <Ionicons name="log-out-outline" size={22} color={colors.textSecondary} />
+            </Pressable>
             <View style={[styles.avatar, { backgroundColor: theme.primaryMuted }]}>
               <Text style={[styles.initial, { color: theme.primaryPressed }]}>{initial}</Text>
             </View>
@@ -84,49 +131,128 @@ export default function ProfileScreen() {
             <Text style={styles.email}>{user?.email}</Text>
           </View>
 
-          <Text style={styles.section}>Задачи</Text>
           <Mode icon="checkbox-outline" title="Все задачи" active={planner.scope === 'all' && !planner.listId} onPress={() => openTasks('all', null)} />
-          <Mode icon="star" title="Избранное" active={planner.scope === 'favorites'} onPress={() => openTasks('favorites', null)} />
-          <Mode icon="flag" title="Просроченные" active={planner.scope === 'overdue'} onPress={() => openTasks('overdue', null)} />
-          <Mode icon="time-outline" title="Без времени" active={planner.scope === 'untimed'} onPress={() => openTasks('untimed', null)} />
 
-          <Text style={styles.section}>Списки</Text>
-          {lists.map((list) => {
-            const active = planner.scope === 'all' && planner.listId === list.id;
-            return (
-              <View key={list.id} style={styles.link}>
-                <Pressable style={styles.linkMain} onPress={() => openTasks('all', list.id)}>
-                  <View style={[styles.dot, { backgroundColor: list.color }]} />
-      <Text style={[styles.modeTitle, active && { color: theme.primary }]}>{list.name}</Text>
-                  {active ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+          <View style={styles.group}>
+            {lists.length > 0 ? <Text style={styles.section}>Списки</Text> : null}
+            {lists.map((list) => {
+              const active = planner.scope === 'all' && planner.listId === list.id;
+              return (
+                <View key={list.id} style={styles.link}>
+                  <Pressable style={styles.linkMain} onPress={() => openTasks('all', list.id)}>
+                    <View style={[styles.dot, { backgroundColor: list.color }]} />
+                    <Text style={[styles.modeTitle, active && { color: theme.primary }]}>{list.name}</Text>
+                    {active ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+                  </Pressable>
+                  <Pressable accessibilityLabel="Удалить список" hitSlop={8} onPress={() => void removeList(list.id)}>
+                    <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+              );
+            })}
+            {creating ? (
+              <View style={styles.create}>
+                <TextInput value={name} onChangeText={setName} onSubmitEditing={() => void createList()} placeholder="Название списка" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                <View style={styles.colors}>
+                  {LIST_COLORS.map((item) => (
+                    <Pressable key={item} onPress={() => setColor(item)} style={[styles.color, { backgroundColor: item }, color === item && styles.colorOn]} />
+                  ))}
+                </View>
+                <Button title="Создать" onPress={() => void createList()} />
+              </View>
+            ) : (
+              <Pressable style={styles.link} onPress={() => setCreating(true)}>
+                <Text style={[styles.linkTitle, { color: theme.primary }]}>+ Список</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.group}>
+            {projects.length > 0 ? <Text style={styles.section}>Проекты</Text> : null}
+            {projects.map((project) => (
+              <View key={project.id} style={styles.link}>
+                <Pressable style={styles.linkMain} onPress={() => router.push(`/(app)/project/${project.id}` as Href)}>
+                  <View style={[styles.dot, { backgroundColor: project.color }]} />
+                  <Text style={styles.modeTitle}>{project.name}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
                 </Pressable>
-                <Pressable accessibilityLabel="Удалить список" hitSlop={8} onPress={() => void removeList(list.id)}>
+                <Pressable
+                  accessibilityLabel="Удалить проект"
+                  hitSlop={8}
+                  onPress={() => {
+                    void api
+                      .deleteProject(project.id)
+                      .then(() => {
+                        setProjects((current) => current.filter((item) => item.id !== project.id));
+                        showToast('Проект удалён');
+                      })
+                      .catch((error) => showToast(getErrorMessage(error)));
+                  }}
+                >
                   <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
                 </Pressable>
               </View>
-            );
-          })}
-          {creating ? (
-            <View style={styles.create}>
-              <TextInput value={name} onChangeText={setName} onSubmitEditing={() => void createList()} placeholder="Название списка" placeholderTextColor={colors.inkMuted} style={styles.input} />
-              <View style={styles.colors}>
-                {LIST_COLORS.map((item) => (
-                  <Pressable key={item} onPress={() => setColor(item)} style={[styles.color, { backgroundColor: item }, color === item && styles.colorOn]} />
-                ))}
+            ))}
+            {creatingProject ? (
+              <View style={styles.create}>
+                <TextInput value={projectName} onChangeText={setProjectName} onSubmitEditing={() => void createProject()} placeholder="Название проекта" placeholderTextColor={colors.inkMuted} style={styles.input} />
+                <View style={styles.colors}>
+                  {LIST_COLORS.map((item) => (
+                    <Pressable key={item} onPress={() => setProjectColor(item)} style={[styles.color, { backgroundColor: item }, projectColor === item && styles.colorOn]} />
+                  ))}
+                </View>
+                <Button title="Создать проект" onPress={() => void createProject()} />
               </View>
-              <Button title="Создать" onPress={() => void createList()} />
-            </View>
-          ) : (
-            <Pressable style={styles.link} onPress={() => setCreating(true)}>
-              <Ionicons name="add" size={20} color={theme.primary} />
-            <Text style={styles.linkTitle}>Новый список</Text>
-            </Pressable>
-          )}
+            ) : (
+              <Pressable style={styles.link} onPress={() => setCreatingProject(true)}>
+                <Text style={[styles.linkTitle, { color: theme.primary }]}>+ Проект</Text>
+              </Pressable>
+            )}
+          </View>
 
+          <View style={styles.group}>
+            {notes.length > 0 ? <Text style={styles.section}>Заметки</Text> : null}
+            {notes.map((note) => (
+              <View key={note.id} style={styles.link}>
+                <Pressable style={styles.linkMain} onPress={() => router.push(`/(app)/note/${note.id}` as Href)}>
+                  <View style={[styles.dot, { backgroundColor: note.color }]} />
+                  <Text style={styles.modeTitle} numberOfLines={1}>
+                    {note.title.trim() || 'Без названия'}
+                  </Text>
+                  {note.pinned ? <Ionicons name="pin" size={16} color={colors.textSecondary} /> : null}
+                </Pressable>
+                <Pressable
+                  accessibilityLabel="Удалить заметку"
+                  hitSlop={8}
+                  onPress={() => {
+                    void api
+                      .deleteNote(note.id)
+                      .then(() => {
+                        setNotes((current) => current.filter((item) => item.id !== note.id));
+                        showToast('Заметка удалена');
+                      })
+                      .catch((error) => showToast(getErrorMessage(error)));
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+            ))}
+            <Pressable
+              style={styles.link}
+              onPress={() => {
+                void api
+                  .createNote({ color: NOTE_COLORS[0] })
+                  .then((created) => router.push(`/(app)/note/${created.id}` as Href))
+                  .catch((error) => showToast(getErrorMessage(error)));
+              }}
+            >
+              <Text style={[styles.linkTitle, { color: theme.primary }]}>+ Заметка</Text>
+            </Pressable>
+          </View>
           <Text style={styles.section}>Настройки</Text>
           <View style={styles.settings}>
-            <Setting icon="arrow-up" title="Новые задачи сверху" hint="Созданная задача встаёт в начало списка" value={planner.newOnTop} onChange={planner.setNewOnTop} />
-            <Setting icon="swap-vertical" title="Перемещение" hint="Стрелки на карточке меняют порядок" value={planner.reorder} onChange={planner.setReorder} />
+            <Setting icon="arrow-up" title="Новые задачи сверху" hint="Выключено: в течение дня задачи идут по времени, с раннего к позднему" value={planner.newOnTop} onChange={planner.setNewOnTop} />
           </View>
           <Text style={styles.section}>Цвет</Text>
           <View style={styles.colors}>
@@ -140,15 +266,6 @@ export default function ProfileScreen() {
             ))}
           </View>
         </ScrollView>
-      </View>
-      <View style={styles.logout}>
-        <Button
-          title="Выйти"
-          variant="secondary"
-          onPress={() => {
-            void logout().then(() => router.replace('/(auth)/welcome' as Href));
-          }}
-        />
       </View>
     </Screen>
   );
@@ -192,7 +309,7 @@ function Setting({
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, marginBottom: 72 },
+  scroll: { flex: 1 },
   heading: {
     fontSize: 28,
     fontWeight: '800',
@@ -215,6 +332,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     marginBottom: spacing.sm,
   },
+  logout: { position: 'absolute', top: spacing.sm, right: spacing.sm, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   avatar: {
     width: 72,
     height: 72,
@@ -225,6 +343,7 @@ const styles = StyleSheet.create({
   initial: { fontSize: 28, fontWeight: '800' },
   name: { fontSize: 20, fontWeight: '800', color: colors.ink },
   email: { fontSize: 15, color: colors.inkMuted },
+  group: { gap: spacing.sm, marginTop: spacing.sm },
   section: { fontSize: 14, fontWeight: '800', color: colors.textSecondary, marginTop: spacing.sm },
   settings: { gap: spacing.md },
   setting: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -248,5 +367,4 @@ const styles = StyleSheet.create({
   colors: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.xs },
   color: { width: 32, height: 32, borderRadius: 16 },
   colorOn: { borderWidth: 3, borderColor: colors.text },
-  logout: { position: 'absolute', left: spacing.lg, right: spacing.lg, bottom: spacing.sm },
 });

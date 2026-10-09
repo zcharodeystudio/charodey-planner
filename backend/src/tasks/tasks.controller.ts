@@ -35,6 +35,11 @@ export class TasksController {
     return this.tasksService.favorites(req.user.id);
   }
 
+  @Get('undated')
+  undated(@Req() req: AuthedRequest) {
+    return this.tasksService.undated(req.user.id);
+  }
+
   @Get(':id')
   get(@Req() req: AuthedRequest, @Param('id') id: string) {
     return this.tasksService.get(req.user.id, id);

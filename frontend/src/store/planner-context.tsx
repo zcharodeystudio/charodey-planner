@@ -2,12 +2,11 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { ViewRange } from '@/lib/dates';
 import { getItem, setItem } from '@/lib/storage';
 
-export type SortMode = 'overdue' | 'time' | 'important' | null;
+export type SortMode = 'time' | 'important' | null;
 export type TaskScope = 'all' | 'favorites' | 'overdue' | 'untimed';
-export type TaskLayout = 'list' | 'dates' | 'table';
+export type TaskLayout = 'list' | 'dates';
 
 export const SORTS: { id: Exclude<SortMode, null>; label: string }[] = [
-  { id: 'overdue', label: 'Просроченные' },
   { id: 'time', label: 'По времени' },
   { id: 'important', label: 'По важности' },
 ];
@@ -18,8 +17,8 @@ type PlannerPrefs = {
   hideDone: boolean;
   listId: string | null;
   newOnTop: boolean;
-  reorder: boolean;
   scope: TaskScope;
+  manualDays: string[];
   layout: TaskLayout;
   rangeFrom: string | null;
   rangeTo: string | null;
@@ -32,7 +31,6 @@ type PlannerValue = PlannerPrefs & {
   setHideDone: (hide: boolean) => void;
   setListId: (id: string | null) => void;
   setNewOnTop: (value: boolean) => void;
-  setReorder: (value: boolean) => void;
 };
 
 const PlannerContext = createContext<PlannerValue | null>(null);
@@ -44,7 +42,7 @@ function normalizeRange(value: unknown): ViewRange {
 }
 
 function normalizeLayout(value: unknown, grouped?: boolean): TaskLayout {
-  if (value === 'list' || value === 'dates' || value === 'table') return value;
+  if (value === 'list' || value === 'dates') return value;
   return grouped ? 'dates' : 'list';
 }
 
@@ -59,12 +57,12 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
   const [hideDone, setHideDoneState] = useState(false);
   const [listId, setListIdState] = useState<string | null>(null);
   const [newOnTop, setNewOnTopState] = useState(false);
-  const [reorder, setReorderState] = useState(false);
   const [scope, setScopeState] = useState<TaskScope>('all');
+  const [manualDays, setManualDaysState] = useState<string[]>([]);
   const [layout, setLayoutState] = useState<TaskLayout>('list');
   const [rangeFrom, setRangeFromState] = useState<string | null>(null);
   const [rangeTo, setRangeToState] = useState<string | null>(null);
-  const current = { sort, range, hideDone, listId, newOnTop, reorder, scope, layout, rangeFrom, rangeTo };
+  const current = { sort, range, hideDone, listId, newOnTop, scope, manualDays, layout, rangeFrom, rangeTo };
   const prefsRef = useRef<PlannerPrefs>(current);
   prefsRef.current = current;
 
@@ -73,13 +71,13 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       if (!raw) return;
       try {
         const saved = JSON.parse(raw) as Partial<PlannerPrefs> & { groupByDate?: boolean };
-        if (saved.sort === null || saved.sort === 'overdue' || saved.sort === 'time' || saved.sort === 'important') setSortState(saved.sort);
+        if (saved.sort === null || saved.sort === 'time' || saved.sort === 'important') setSortState(saved.sort);
         if (saved.range) setRangeState(normalizeRange(saved.range));
         if (typeof saved.hideDone === 'boolean') setHideDoneState(saved.hideDone);
         if (typeof saved.listId === 'string' || saved.listId === null) setListIdState(saved.listId ?? null);
         if (typeof saved.newOnTop === 'boolean') setNewOnTopState(saved.newOnTop);
-        if (typeof saved.reorder === 'boolean') setReorderState(saved.reorder);
         if (saved.scope) setScopeState(normalizeScope(saved.scope));
+        if (Array.isArray(saved.manualDays)) setManualDaysState(saved.manualDays.filter((day) => typeof day === 'string'));
         setLayoutState(normalizeLayout(saved.layout, saved.groupByDate));
         if (typeof saved.rangeFrom === 'string' || saved.rangeFrom === null) setRangeFromState(saved.rangeFrom ?? null);
         if (typeof saved.rangeTo === 'string' || saved.rangeTo === null) setRangeToState(saved.rangeTo ?? null);
@@ -101,8 +99,8 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       setHideDoneState(next.hideDone);
       setListIdState(next.listId);
       setNewOnTopState(next.newOnTop);
-      setReorderState(next.reorder);
       setScopeState(next.scope);
+      setManualDaysState(next.manualDays);
       setLayoutState(next.layout);
       setRangeFromState(next.rangeFrom);
       setRangeToState(next.rangeTo);
@@ -116,9 +114,8 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       setHideDone: (next) => apply({ hideDone: next }),
       setListId: (next) => apply({ listId: next }),
       setNewOnTop: (next) => apply({ newOnTop: next }),
-      setReorder: (next) => apply({ reorder: next }),
     };
-  }, [current.hideDone, current.layout, current.listId, current.newOnTop, current.range, current.rangeFrom, current.rangeTo, current.reorder, current.scope, current.sort]);
+  }, [current.hideDone, current.layout, current.listId, current.manualDays, current.newOnTop, current.range, current.rangeFrom, current.rangeTo, current.scope, current.sort]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 }

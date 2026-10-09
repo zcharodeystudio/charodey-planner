@@ -2,9 +2,9 @@ import { taskInputSchema, type RepeatMode } from '@charodey/validation';
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api, type TaskFile, type TaskListItem, type TaskStep } from '@/api/client';
+import { api, type BoardItem, type ProjectItem, type TaskFile, type TaskListItem, type TaskStep } from '@/api/client';
 import { MonthCalendar } from '@/components/month-calendar';
 import { Button } from '@/components/ui/button';
 import { ErrorBanner } from '@/components/ui/error-banner';
@@ -37,20 +37,23 @@ export default function TaskScreen() {
   const navigation = useNavigation();
   const { setDate: setSelectedDate } = useSelectedDate();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ id: string; date?: string; listId?: string }>();
+  const params = useLocalSearchParams<{ id: string; date?: string; listId?: string; boardId?: string; statusId?: string; undated?: string }>();
   const id = params.id;
   const isNew = id === 'new';
+  const openedUndated = params.undated === '1';
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(typeof params.date === 'string' ? params.date : todayISO());
+  const [date, setDate] = useState<string | null>(openedUndated ? null : typeof params.date === 'string' ? params.date : todayISO());
   const [timeOn, setTimeOn] = useState(false);
   const [hour, setHour] = useState(9);
   const [minute, setMinute] = useState(0);
   const [dateOpen, setDateOpen] = useState(false);
+  const [dueDate, setDueDate] = useState<string | null>(null);
+  const [dueOpen, setDueOpen] = useState(false);
   const [reminderOn, setReminderOn] = useState(false);
-  const [remindDate, setRemindDate] = useState(date);
+  const [remindDate, setRemindDate] = useState(date ?? todayISO());
   const [remindHour, setRemindHour] = useState(9);
   const [remindMinute, setRemindMinute] = useState(0);
   const [remindOpen, setRemindOpen] = useState(false);
@@ -65,6 +68,13 @@ export default function TaskScreen() {
   const [files, setFiles] = useState<TaskFile[]>([]);
   const [lists, setLists] = useState<TaskListItem[]>([]);
   const [listId, setListId] = useState<string | null>(typeof params.listId === 'string' ? params.listId : null);
+  const [listOpen, setListOpen] = useState(false);
+  const [boardId, setBoardId] = useState<string | null>(typeof params.boardId === 'string' ? params.boardId : null);
+  const [statusId, setStatusId] = useState<string | null>(typeof params.statusId === 'string' ? params.statusId : null);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [projectOpen, setProjectOpen] = useState(false);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [titleError, setTitleError] = useState<string>();
   const [generalError, setGeneralError] = useState<string>();
   const skipSave = useRef(false);
@@ -79,12 +89,42 @@ export default function TaskScreen() {
     setStepOpen(false);
   };
 
-  const selected = parseISODate(date);
+  const calendarAnchor = date ?? todayISO();
+  const selected = parseISODate(calendarAnchor);
   const reminder = parseISODate(remindDate);
 
   useEffect(() => {
     void api.lists().then(setLists).catch(() => undefined);
+    void api.projects().then(setProjects).catch(() => undefined);
   }, []);
+
+  const project = projects.find((item) => item.boards?.some((board) => board.id === boardId)) ?? null;
+  const board = project?.boards?.find((item) => item.id === boardId) ?? null;
+  const columns = board?.columns ?? [];
+
+  const assignProject = (next: ProjectItem | null) => {
+    if (!next) {
+      setBoardId(null);
+      setStatusId(null);
+      setProjectOpen(false);
+      return;
+    }
+    const boards = next.boards ?? [];
+    if (!boards.length) {
+      showToast('В этом проекте ещё нет доски');
+      return;
+    }
+    const nextBoard = boards.find((item) => item.id === boardId) ?? boards[0];
+    setBoardId(nextBoard.id);
+    if (!nextBoard.columns.some((column) => column.id === statusId)) setStatusId(nextBoard.columns[0]?.id ?? null);
+    setProjectOpen(false);
+  };
+
+  const assignBoard = (next: BoardItem) => {
+    setBoardId(next.id);
+    setStatusId(next.columns[0]?.id ?? null);
+    setBoardOpen(false);
+  };
 
   useEffect(() => {
     if (isNew) return;
@@ -104,6 +144,9 @@ export default function TaskScreen() {
         setSteps(task.steps ?? []);
         setFiles(task.files ?? []);
         setListId(task.listId);
+        setDueDate(task.dueDate);
+        setBoardId(task.boardId);
+        setStatusId(task.statusId);
         if (task.time) {
           const [h, m] = task.time.split(':').map(Number);
           setTimeOn(true);
@@ -159,7 +202,7 @@ export default function TaskScreen() {
       leave(action);
       return;
     }
-    if (repeat === 'custom' && repeatDays.length === 0) {
+    if (date && repeat === 'custom' && repeatDays.length === 0) {
       setGeneralError('Выберите хотя бы один день повтора');
       return;
     }
@@ -174,12 +217,15 @@ export default function TaskScreen() {
       important,
       favorite,
       isEvent,
-      ...(isNew ? { position: planner.newOnTop ? -Date.now() : Date.now() } : {}),
-      repeat,
-      repeatDays,
+      ...(isNew && planner.newOnTop ? { position: -Date.now() } : {}),
+      repeat: date ? repeat : 'none',
+      repeatDays: date ? repeatDays : [],
       steps: nextSteps,
       files,
       listId,
+      dueDate,
+      boardId,
+      statusId,
     });
     if (!parsed.success) {
       setTitleError(parsed.error.issues[0]?.message ?? 'Проверьте поля');
@@ -192,11 +238,11 @@ export default function TaskScreen() {
     try {
       const saved = isNew ? await api.createTask(parsed.data) : await api.updateTask(id, parsed.data);
       const reminderState = await syncTaskReminder(saved);
-      if (reminderState === 'denied') showToast('Задача сохранена, но уведомления запрещены');
+      showToast(reminderState === 'denied' ? 'Задача сохранена, но уведомления запрещены' : 'Задача сохранена');
       if (isNew) {
-        const stayUntimed = planner.scope === 'untimed' && !saved.time;
+        const stayUntimed = planner.scope === 'untimed' && !saved.date;
         planner.apply({ scope: stayUntimed ? 'untimed' : 'all', listId: saved.listId });
-        setSelectedDate(saved.date);
+        if (saved.date) setSelectedDate(saved.date);
         skipSave.current = true;
         router.replace('/(app)/(tabs)/today' as Href);
         return;
@@ -219,13 +265,33 @@ export default function TaskScreen() {
       setRemindOpen(false);
       return true;
     }
+    if (boardOpen) {
+      setBoardOpen(false);
+      return true;
+    }
+    if (projectOpen) {
+      setProjectOpen(false);
+      return true;
+    }
+    if (statusOpen) {
+      setStatusOpen(false);
+      return true;
+    }
+    if (listOpen) {
+      setListOpen(false);
+      return true;
+    }
+    if (dueOpen) {
+      setDueOpen(false);
+      return true;
+    }
     if (dateOpen) {
       setDateOpen(false);
       return true;
     }
     void closeRef.current();
     return true;
-  }, [dateOpen, remindOpen, stepOpen]);
+  }, [boardOpen, dateOpen, dueOpen, listOpen, projectOpen, remindOpen, statusOpen, stepOpen]);
   useAndroidBack(onHardwareBack);
 
   useEffect(() => {
@@ -242,6 +308,7 @@ export default function TaskScreen() {
     try {
       await api.deleteTask(id);
       await cancelTaskReminder(id);
+      showToast('Задача удалена');
       if (router.canGoBack()) router.back();
       else router.replace('/(app)/(tabs)/today' as Href);
     } catch (error) {
@@ -260,7 +327,7 @@ export default function TaskScreen() {
           <Text style={styles.backText}>Назад</Text>
         </Pressable>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, !isNew && styles.contentWithTrash]} keyboardShouldPersistTaps="handled">
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.md) + (isNew ? spacing.xl : 108) }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.heading}>{isNew ? 'Новая задача' : 'Изменить задачу'}</Text>
         <Input label="Название" value={title} onChangeText={(value) => { setTitle(value); setTitleError(undefined); }} placeholder="Например, позвонить маме" error={titleError} />
         <View style={styles.block}>
@@ -293,36 +360,120 @@ export default function TaskScreen() {
             </Pressable>
           )}
         </View>
-        <Input label="Заметка" value={note} onChangeText={setNote} placeholder="Необязательно" multiline style={styles.note} />
         <Flag label="Важно" value={important} onChange={setImportant} icon="flag" />
         <Flag label="В избранном" hint="Попадёт в список избранных" value={favorite} onChange={setFavorite} icon="star" />
         <Flag label="Событие" hint="Подсветится на списке" value={isEvent} onChange={setEvent} icon="calendar" />
-        {lists.length ? (
-          <View style={styles.block}>
-            <Text style={styles.label}>Список</Text>
-            <View style={styles.wrap}>
-              <Chip label="Без списка" active={listId === null} onPress={() => setListId(null)} />
-              {lists.map((list) => (
-                <Chip key={list.id} label={list.name} active={listId === list.id} color={list.color} onPress={() => setListId(list.id)} />
-              ))}
+        <View style={styles.pickerRow}>
+          <Text style={styles.label}>Список</Text>
+          <View style={styles.pickerValue}>
+            {lists.find((list) => list.id === listId) ? (
+              <View style={[styles.badge, { backgroundColor: lists.find((list) => list.id === listId)?.color }]}>
+                <Text style={styles.badgeText} numberOfLines={1}>{lists.find((list) => list.id === listId)?.name}</Text>
+              </View>
+            ) : (
+              <Text style={styles.hint}>Без списка</Text>
+            )}
+            <Pressable accessibilityLabel="Выбрать список" onPress={() => setListOpen(true)} hitSlop={8}>
+              <Ionicons name="create-outline" size={20} color={theme.primary} />
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.pickerRow}>
+          <Text style={styles.label}>Проект</Text>
+          <View style={styles.pickerValue}>
+            {project ? (
+              <View style={[styles.badge, { backgroundColor: project.color }]}>
+                <Text style={styles.badgeText} numberOfLines={1}>{project.name}</Text>
+              </View>
+            ) : (
+              <Text style={styles.hint}>Без проекта</Text>
+            )}
+            <Pressable accessibilityLabel="Выбрать проект" onPress={() => setProjectOpen(true)} hitSlop={8}>
+              <Ionicons name="create-outline" size={20} color={theme.primary} />
+            </Pressable>
+          </View>
+        </View>
+        {project ? (
+          <View style={styles.pickerRow}>
+            <Text style={styles.label}>Доска</Text>
+            <View style={styles.pickerValue}>
+              <Text style={[styles.value, { color: theme.primary }]} numberOfLines={1}>{board?.name ?? 'Выберите доску'}</Text>
+              <Pressable accessibilityLabel="Выбрать доску" onPress={() => setBoardOpen(true)} hitSlop={8}>
+                <Ionicons name="create-outline" size={20} color={theme.primary} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+        {boardId ? (
+          <View style={styles.pickerRow}>
+            <Text style={styles.label}>Статус</Text>
+            <View style={styles.pickerValue}>
+              <Text style={[styles.value, { color: theme.primary }]} numberOfLines={1}>
+                {columns.find((column) => column.id === statusId)?.name ?? 'Без статуса'}
+              </Text>
+              <Pressable accessibilityLabel="Сменить статус" onPress={() => setStatusOpen(true)} hitSlop={8}>
+                <Ionicons name="create-outline" size={20} color={theme.primary} />
+              </Pressable>
             </View>
           </View>
         ) : null}
         <Pressable onPress={() => setDateOpen((value) => !value)} style={styles.pickerRow}>
           <Text style={styles.label}>Дата</Text>
-          <Text style={[styles.value, { color: theme.primary }]}>{formatLongDate(date)}</Text>
+          <View style={styles.pickerValue}>
+            <Text style={[styles.value, { color: date ? theme.primary : colors.inkMuted }]}>{date ? formatLongDate(date) : 'Без даты'}</Text>
+            <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+          </View>
         </Pressable>
         {dateOpen ? (
-          <MonthCalendar
-            embedded
-            year={selected.getFullYear()}
-            month={selected.getMonth()}
-            selected={date}
-            marked={new Set()}
-            onSelect={setDate}
-            onPrev={() => setDate(shiftMonth(date, -1))}
-            onNext={() => setDate(shiftMonth(date, 1))}
-          />
+          <View style={styles.block}>
+            <MonthCalendar
+              embedded
+              year={selected.getFullYear()}
+              month={selected.getMonth()}
+              selected={date ?? ''}
+              marked={new Set()}
+              onSelect={setDate}
+              onPrev={() => setDate(shiftMonth(calendarAnchor, -1))}
+              onNext={() => setDate(shiftMonth(calendarAnchor, 1))}
+            />
+            {date ? (
+              <Pressable
+                onPress={() => {
+                  setDate(null);
+                  setRepeat('none');
+                  setRepeatDays([]);
+                }}
+              >
+                <Text style={[styles.hint, { color: theme.primary }]}>Убрать дату</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+        <Pressable onPress={() => setDueOpen((value) => !value)} style={styles.pickerRow}>
+          <Text style={styles.label}>Крайний срок</Text>
+          <View style={styles.pickerValue}>
+            <Text style={[styles.value, { color: dueDate ? theme.primary : colors.inkMuted }]}>{dueDate ? formatLongDate(dueDate) : 'Не задан'}</Text>
+            <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+          </View>
+        </Pressable>
+        {dueOpen ? (
+          <View style={styles.block}>
+            <MonthCalendar
+              embedded
+              year={parseISODate(dueDate ?? calendarAnchor).getFullYear()}
+              month={parseISODate(dueDate ?? calendarAnchor).getMonth()}
+              selected={dueDate ?? ''}
+              marked={new Set()}
+              onSelect={setDueDate}
+              onPrev={() => setDueDate(shiftMonth(dueDate ?? calendarAnchor, -1))}
+              onNext={() => setDueDate(shiftMonth(dueDate ?? calendarAnchor, 1))}
+            />
+            {dueDate ? (
+              <Pressable onPress={() => setDueDate(null)}>
+                <Text style={[styles.hint, { color: theme.primary }]}>Убрать срок</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
         <Flag label="Время" value={timeOn} onChange={setTimeOn} />
         {timeOn ? <TimeRow hour={hour} minute={minute} onHour={setHour} onMinute={setMinute} /> : null}
@@ -348,7 +499,7 @@ export default function TaskScreen() {
             <TimeRow hour={remindHour} minute={remindMinute} onHour={setRemindHour} onMinute={setRemindMinute} />
           </View>
         ) : null}
-        <View style={styles.block}>
+        {date ? <View style={styles.block}>
           <Text style={styles.label}>Повтор</Text>
           <View style={styles.wrap}>
             {REPEATS.map((item) => (
@@ -372,7 +523,8 @@ export default function TaskScreen() {
               ))}
             </View>
           ) : null}
-        </View>
+        </View> : null}
+        <Input label="Заметка" value={note} onChangeText={setNote} placeholder="Необязательно" multiline style={styles.note} />
         <View style={styles.block}>
           <Text style={styles.label}>Файл</Text>
           {files.map((file) => (
@@ -396,6 +548,92 @@ export default function TaskScreen() {
         </View>
         <ErrorBanner message={generalError} />
       </ScrollView>
+      <Modal visible={projectOpen} transparent animationType="fade" onRequestClose={() => setProjectOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setProjectOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => undefined}>
+            <Text style={styles.label}>Проект</Text>
+            <Pressable onPress={() => assignProject(null)} style={styles.listOption}>
+              <Text style={styles.stepText}>Без проекта</Text>
+              {!project ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+            </Pressable>
+            {projects.map((item) => (
+              <Pressable key={item.id} onPress={() => assignProject(item)} style={styles.listOption}>
+                <View style={[styles.badge, { backgroundColor: item.color }]}>
+                  <Text style={styles.badgeText}>{item.name}</Text>
+                </View>
+                {project?.id === item.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+            {projects.length === 0 ? <Text style={styles.hint}>Проектов пока нет. Создайте их в профиле.</Text> : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal visible={boardOpen} transparent animationType="fade" onRequestClose={() => setBoardOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setBoardOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => undefined}>
+            <Text style={styles.label}>Доска</Text>
+            {(project?.boards ?? []).map((item) => (
+              <Pressable key={item.id} onPress={() => assignBoard(item)} style={styles.listOption}>
+                <Text style={styles.stepText}>{item.name}</Text>
+                {boardId === item.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal visible={statusOpen} transparent animationType="fade" onRequestClose={() => setStatusOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setStatusOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => undefined}>
+            <Text style={styles.label}>Статус</Text>
+            {columns.map((column) => (
+              <Pressable
+                key={column.id}
+                onPress={() => {
+                  setStatusId(column.id);
+                  setStatusOpen(false);
+                }}
+                style={styles.listOption}
+              >
+                <Text style={styles.stepText}>{column.name}</Text>
+                {statusId === column.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal visible={listOpen} transparent animationType="fade" onRequestClose={() => setListOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setListOpen(false)}>
+          <Pressable style={styles.modalCard} onPress={() => undefined}>
+            <Text style={styles.label}>Списки</Text>
+            <Pressable
+              onPress={() => {
+                setListId(null);
+                setListOpen(false);
+              }}
+              style={styles.listOption}
+            >
+              <Text style={styles.stepText}>Без списка</Text>
+              {listId === null ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+            </Pressable>
+            {lists.map((list) => (
+              <Pressable
+                key={list.id}
+                onPress={() => {
+                  setListId(list.id);
+                  setListOpen(false);
+                }}
+                style={styles.listOption}
+              >
+                <View style={[styles.badge, { backgroundColor: list.color }]}>
+                  <Text style={styles.badgeText}>{list.name}</Text>
+                </View>
+                {listId === list.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
+              </Pressable>
+            ))}
+            {lists.length === 0 ? <Text style={styles.hint}>Списков пока нет. Создайте их в профиле.</Text> : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
       {isNew ? null : (
         <Pressable
           accessibilityRole="button"
@@ -470,8 +708,7 @@ const styles = StyleSheet.create({
   back: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
   backText: { fontSize: 16, fontWeight: '600', color: colors.text },
   scroll: { flex: 1 },
-  content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
-  contentWithTrash: { paddingBottom: 96 },
+  content: { paddingHorizontal: spacing.lg, gap: spacing.md },
   heading: { fontSize: 28, fontWeight: '800', color: colors.text },
   note: { minHeight: 88, textAlignVertical: 'top', paddingTop: 14 },
   label: { fontSize: 14, fontWeight: '700', color: colors.text },
@@ -480,7 +717,13 @@ const styles = StyleSheet.create({
   block: { gap: spacing.sm },
   flag: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   flagCopy: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
-  pickerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, gap: spacing.md },
+  pickerValue: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+  badge: { borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4, maxWidth: 180 },
+  badgeText: { fontSize: 13, fontWeight: '800', color: colors.ink },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(26, 8, 48, 0.62)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: colors.surface, borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl, padding: spacing.lg, gap: spacing.sm },
+  listOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { borderRadius: radii.full, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   chipText: { fontSize: 13, fontWeight: '700', color: colors.ink },

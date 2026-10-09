@@ -1,4 +1,4 @@
-import { ActivityIndicator, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/theme/theme';
 
@@ -12,11 +12,9 @@ export function Screen({ children, style }: { children: React.ReactNode; style?:
 
 export function ScreenLoader() {
   return (
-    <Screen>
-      <View style={styles.loader}>
-        <ActivityIndicator color={colors.primary} size="large" />
-      </View>
-    </Screen>
+    <View style={styles.loader}>
+      <Image source={require('../../../assets/icon.png')} style={styles.logo} />
+    </View>
   );
 }
 
@@ -35,5 +33,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#3B1464',
   },
+  logo: { width: 168, height: 168 },
 });

@@ -10,7 +10,7 @@ export type TaskView = {
   id: string;
   title: string;
   note: string;
-  date: string;
+  date: string | null;
   time: string | null;
   remindAt: string | null;
   done: boolean;
@@ -23,6 +23,9 @@ export type TaskView = {
   steps: TaskStep[];
   files: TaskFile[];
   listId: string | null;
+  dueDate: string | null;
+  boardId: string | null;
+  statusId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -61,12 +64,12 @@ export class TasksService {
   }
 
   async create(userId: string, dto: CreateTaskDto) {
-    this.assertRealDate(dto.date);
+    if (dto.date) this.assertRealDate(dto.date);
     const task = await this.taskModel.create({
       userId,
       ...this.fieldsFromDto(dto),
       title: dto.title.trim(),
-      date: dto.date,
+      date: dto.date ?? null,
     });
     return this.toView(task, true);
   }
@@ -87,6 +90,17 @@ export class TasksService {
     const task = await this.taskModel.findOneAndUpdate({ _id: id, userId }, { $set }, { new: true }).exec();
     if (!task) throw new NotFoundException('Задача не найдена');
     return this.toView(task, true);
+  }
+
+  async byBoard(userId: string, boardId: string) {
+    this.assertId(boardId);
+    const tasks = await this.taskModel.find({ userId, boardId }).exec();
+    return tasks.map((task) => this.toView(task, false)).sort(compareTasks);
+  }
+
+  async undated(userId: string) {
+    const tasks = await this.taskModel.find({ userId, $or: [{ date: null }, { date: '' }] }).exec();
+    return tasks.map((task) => this.toView(task, false)).sort(compareTasks);
   }
 
   async favorites(userId: string) {
@@ -134,6 +148,12 @@ export class TasksService {
     if (dto.steps !== undefined) $set.steps = dto.steps.map((step) => ({ ...step, title: step.title.trim() }));
     if (dto.files !== undefined) $set.files = dto.files;
     if (dto.listId !== undefined) $set.listId = dto.listId;
+    if (dto.dueDate !== undefined) {
+      if (dto.dueDate) this.assertRealDate(dto.dueDate);
+      $set.dueDate = dto.dueDate;
+    }
+    if (dto.boardId !== undefined) $set.boardId = dto.boardId;
+    if (dto.statusId !== undefined) $set.statusId = dto.statusId;
     return $set;
   }
 
@@ -177,6 +197,9 @@ export class TasksService {
         data: withFileData ? file.data : '',
       })),
       listId: task.listId ?? null,
+      dueDate: task.dueDate ?? null,
+      boardId: task.boardId ?? null,
+      statusId: task.statusId ?? null,
       createdAt: task.createdAt ? new Date(task.createdAt).toISOString() : new Date().toISOString(),
       updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : new Date().toISOString(),
     };

@@ -34,6 +34,16 @@ export function todayISO() {
   return formatISODate(new Date());
 }
 
+export function isOverdue(
+  task: { done?: boolean; date?: string | null; dueDate?: string | null; repeat?: string | null },
+  today = todayISO(),
+) {
+  if (task.done) return false;
+  if (task.dueDate && task.dueDate < today) return true;
+  if (!task.date) return false;
+  return (task.repeat || 'none') === 'none' && task.date < today;
+}
+
 export function formatISODate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInUp, FadeOutUp } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { subscribeToast } from '@/lib/toast';
@@ -22,7 +23,10 @@ export function ToastHost() {
 
   return (
     <Animated.View entering={FadeInUp.duration(220)} exiting={FadeOutUp.duration(180)} style={[styles.wrap, { top: insets.top + 12 }]}>
-      <Text style={styles.text}>{message}</Text>
+      <View style={styles.row}>
+        <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+        <Text style={styles.text}>{message}</Text>
+      </View>
     </Animated.View>
   );
 }
@@ -41,10 +45,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   text: {
+    flexShrink: 1,
     color: colors.white,
     fontSize: 14,
     lineHeight: 20,
-    textAlign: 'center',
   },
 });

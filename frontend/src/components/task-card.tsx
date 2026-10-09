@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { Task } from '@/api/client';
 import { DoneMark, DoneTitle } from '@/components/done-mark';
-import { formatTime } from '@/lib/dates';
+import { formatLongDate, formatTime, isOverdue } from '@/lib/dates';
 import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
@@ -12,16 +12,19 @@ type TaskCardProps = {
   task: Task;
   index: number;
   listColor?: string;
+  listName?: string;
+  onOpenList?: () => void;
+  projectColor?: string;
+  projectName?: string;
+  onOpenProject?: () => void;
   onPress: () => void;
   onToggle: () => void;
   onFavorite: () => void;
   onImportant?: () => void;
   onToggleStep?: (stepId: string) => void;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
 };
 
-export function TaskCard({ task, index, listColor, onPress, onToggle, onFavorite, onImportant, onToggleStep, onMoveUp, onMoveDown }: TaskCardProps) {
+export function TaskCard({ task, index, listColor, listName, onOpenList, projectColor, projectName, onOpenProject, onPress, onToggle, onFavorite, onImportant, onToggleStep }: TaskCardProps) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
   const steps = task.steps ?? [];
@@ -33,6 +36,7 @@ export function TaskCard({ task, index, listColor, onPress, onToggle, onFavorite
         style={({ pressed }) => [
           styles.card,
           task.isEvent && styles.event,
+          isOverdue(task) && styles.overdue,
           pressed && styles.pressed,
         ]}
       >
@@ -55,7 +59,22 @@ export function TaskCard({ task, index, listColor, onPress, onToggle, onFavorite
             </Text>
           ) : null}
           <View style={styles.meta}>
-            {listColor ? <View style={[styles.listDot, { backgroundColor: listColor }]} /> : null}
+            {projectName ? (
+              <Pressable onPress={onOpenProject} hitSlop={6} style={[styles.listBadge, { backgroundColor: projectColor ?? theme.primaryMuted }]}>
+                <Ionicons name="albums" size={11} color={colors.ink} />
+                <Text style={styles.listBadgeText} numberOfLines={1}>
+                  {projectName}
+                </Text>
+              </Pressable>
+            ) : null}
+            {listName ? (
+              <Pressable onPress={onOpenList} hitSlop={6} style={[styles.listBadge, { backgroundColor: listColor ?? theme.primaryMuted }]}>
+                <Text style={styles.listBadgeText} numberOfLines={1}>
+                  {listName}
+                </Text>
+              </Pressable>
+            ) : null}
+            {task.dueDate ? <Text style={styles.due}>до {formatLongDate(task.dueDate)}</Text> : null}
             {task.time ? <Text style={[styles.metaText, { color: theme.primaryPressed }]}>{task.time}</Text> : null}
             {task.remindAt ? (
               <View style={styles.reminder}>
@@ -88,16 +107,6 @@ export function TaskCard({ task, index, listColor, onPress, onToggle, onFavorite
             </View>
           ) : null}
         </View>
-        {onMoveUp || onMoveDown ? (
-          <View style={styles.moves}>
-            <Pressable onPress={onMoveUp} disabled={!onMoveUp} hitSlop={6} style={!onMoveUp && styles.moveOff}>
-              <Ionicons name="chevron-up" size={18} color={colors.text} />
-            </Pressable>
-            <Pressable onPress={onMoveDown} disabled={!onMoveDown} hitSlop={6} style={!onMoveDown && styles.moveOff}>
-              <Ionicons name="chevron-down" size={18} color={colors.text} />
-            </Pressable>
-          </View>
-        ) : null}
       </Pressable>
     </Animated.View>
   );
@@ -118,6 +127,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8E7C8',
     borderColor: '#C084FC',
   },
+  overdue: {
+    backgroundColor: '#F8D5DE',
+    borderColor: '#E7A3B4',
+  },
   pressed: { opacity: 0.92 },
   body: { flex: 1, gap: 4 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -126,13 +139,13 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   metaText: { fontSize: 13, fontWeight: '600', color: colors.inkMuted },
   reminder: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  listDot: { width: 8, height: 8, borderRadius: 4 },
+  listBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 2, maxWidth: 140 },
+  listBadgeText: { fontSize: 11, fontWeight: '800', color: colors.ink },
+  due: { fontSize: 12, fontWeight: '700', color: '#C026D3' },
   eventLabel: { fontSize: 12, fontWeight: '700', color: '#7C3AED' },
   stepsToggle: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   steps: { gap: 4, marginTop: 4 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 28 },
   stepText: { flex: 1, fontSize: 14, color: colors.ink },
   stepDone: { color: colors.inkMuted, textDecorationLine: 'line-through' },
-  moves: { gap: 2 },
-  moveOff: { opacity: 0.25 },
 });

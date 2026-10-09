@@ -64,7 +64,7 @@ const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Время в 
 export const taskInputSchema = z.object({
   title: z.string().trim().min(1, 'Введите название').max(TITLE_MAX),
   note: z.string().trim().max(NOTE_MAX).optional().default(''),
-  date: dateSchema,
+  date: z.union([dateSchema, z.null()]),
   time: z.union([timeSchema, z.null()]).optional(),
   remindAt: z.union([z.iso.datetime(), z.null()]).optional(),
   done: z.boolean().optional(),
@@ -77,6 +77,9 @@ export const taskInputSchema = z.object({
   steps: z.array(taskStepSchema).max(20).optional(),
   files: z.array(taskFileSchema).max(3).optional(),
   listId: z.union([z.string().min(1), z.null()]).optional(),
+  dueDate: z.union([dateSchema, z.null()]).optional(),
+  boardId: z.union([z.string().min(1), z.null()]).optional(),
+  statusId: z.union([z.string().min(1).max(40), z.null()]).optional(),
 });
 
 export function weekdayIndex(iso: string) {
@@ -86,10 +89,10 @@ export function weekdayIndex(iso: string) {
 }
 
 export function occursOn(
-  task: { date: string; repeat?: string | null; repeatDays?: number[] | null },
+  task: { date?: string | null; repeat?: string | null; repeatDays?: number[] | null },
   iso: string,
 ) {
-  if (iso < task.date) return false;
+  if (!task.date || iso < task.date) return false;
   const repeat = task.repeat || 'none';
   if (repeat === 'none') return task.date === iso;
   if (repeat === 'daily') return true;

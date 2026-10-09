@@ -12,10 +12,18 @@ export function SwipeToDelete({
   children,
   onDelete,
   rounded = true,
+  draggable = false,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
 }: {
   children: React.ReactNode;
   onDelete: () => void;
   rounded?: boolean;
+  draggable?: boolean;
+  onDragStart?: (absoluteY: number) => void;
+  onDragMove?: (absoluteY: number) => void;
+  onDragEnd?: (absoluteY: number) => void;
 }) {
   const x = useSharedValue(0);
   const width = useSharedValue(0);
@@ -23,6 +31,8 @@ export function SwipeToDelete({
   const removed = useRef(false);
   const onDeleteRef = useRef(onDelete);
   onDeleteRef.current = onDelete;
+  const dragRef = useRef({ onDragStart, onDragMove, onDragEnd });
+  dragRef.current = { onDragStart, onDragMove, onDragEnd };
 
   const commit = useCallback(() => {
     setTimeout(() => {
@@ -31,6 +41,31 @@ export function SwipeToDelete({
       onDeleteRef.current();
     }, 190);
   }, []);
+
+  const notifyDrag = useCallback((kind: 'start' | 'move' | 'end', y: number) => {
+    const current = dragRef.current;
+    if (kind === 'start') current.onDragStart?.(y);
+    else if (kind === 'move') current.onDragMove?.(y);
+    else current.onDragEnd?.(y);
+  }, []);
+
+  const drag = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(draggable)
+        .activateAfterLongPress(280)
+        .failOffsetX([-20, 20])
+        .onStart((event) => {
+          runOnJS(notifyDrag)('start', event.absoluteY);
+        })
+        .onUpdate((event) => {
+          runOnJS(notifyDrag)('move', event.absoluteY);
+        })
+        .onFinalize((event) => {
+          runOnJS(notifyDrag)('end', event.absoluteY);
+        }),
+    [draggable, notifyDrag],
+  );
 
   const pan = useMemo(
     () =>
@@ -56,6 +91,8 @@ export function SwipeToDelete({
     [commit, deleting, width, x],
   );
 
+  const gesture = useMemo(() => (draggable ? Gesture.Exclusive(drag, pan) : pan), [drag, draggable, pan]);
+
   const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
   const iconStyle = useAnimatedStyle(() => {
     const progress = Math.min(1, Math.abs(x.value) / TRIGGER);
@@ -74,7 +111,7 @@ export function SwipeToDelete({
           <Ionicons name="trash" size={22} color={colors.white} />
         </Animated.View>
       </View>
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <Animated.View style={rowStyle}>{children}</Animated.View>
       </GestureDetector>
     </View>

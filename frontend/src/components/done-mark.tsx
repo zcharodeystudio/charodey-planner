@@ -27,9 +27,9 @@ export function DoneMark({ done, color, size = 26, radius }: { done: boolean; co
     transform: [{ scale: interpolate(progress.value, [0, 1], [0.3, 1]) }],
   }));
 
-  const boxRadius = radius ?? size / 2;
+  const boxRadius = radius ?? Math.round(size * 0.32);
   return (
-    <Animated.View style={[styles.box, { width: size, height: size, borderRadius: boxRadius, borderColor: color }, ring]}>
+    <Animated.View style={[styles.box, { width: size, height: size, borderRadius: boxRadius, borderColor: done ? '#C084FC' : color }, ring]}>
       <Animated.View style={[styles.fill, { backgroundColor: color, borderRadius: boxRadius }, fill]} />
       <Animated.View style={icon}>
         <Ionicons name="checkmark" size={Math.round(size * 0.62)} color={theme.onPrimary} />
@@ -58,7 +58,7 @@ export function DoneTitle({
 
 const styles = StyleSheet.create({
   box: {
-    borderWidth: 2,
+    borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -42,8 +42,8 @@ export class Task {
   @Prop({ default: '' })
   note: string;
 
-  @Prop({ required: true, index: true })
-  date: string;
+  @Prop({ type: String, default: null, index: true })
+  date: string | null;
 
   @Prop({ type: String, default: null })
   time: string | null;
@@ -80,6 +80,15 @@ export class Task {
 
   @Prop({ type: String, default: null, index: true })
   listId: string | null;
+
+  @Prop({ type: String, default: null })
+  dueDate: string | null;
+
+  @Prop({ type: String, default: null, index: true })
+  boardId: string | null;
+
+  @Prop({ type: String, default: null })
+  statusId: string | null;
 }
 
 export const TaskSchema = SchemaFactory.createForClass(Task);
