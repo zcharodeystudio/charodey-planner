@@ -9,31 +9,67 @@ export type PickedFile = {
   data: string;
 };
 
-export async function pickAttachment(): Promise<PickedFile | null> {
-  if (Platform.OS === 'web') {
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.onchange = () => {
-        const file = input.files?.[0];
-        if (!file) return resolve(null);
-        if (file.size > MAX_BYTES) {
-          showToast('Файл больше 700 КБ');
-          return resolve(null);
-        }
-        const reader = new FileReader();
-        reader.onload = () =>
-          resolve({
-            name: file.name,
-            mimeType: file.type || 'application/octet-stream',
-            data: String(reader.result),
-          });
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-      };
-      input.click();
-    });
+function readBrowserFile(file: File): Promise<PickedFile | null> {
+  if (file.size > MAX_BYTES) {
+    showToast('Файл больше 700 КБ');
+    return Promise.resolve(null);
   }
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: String(reader.result),
+      });
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+function pickWebFile(accept?: string, capture?: boolean): Promise<PickedFile | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (accept) input.accept = accept;
+    if (capture) input.setAttribute('capture', 'environment');
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return resolve(null);
+      void readBrowserFile(file).then(resolve);
+    };
+    input.click();
+  });
+}
+
+export function pickFromCamera(): Promise<PickedFile | null> {
+  if (Platform.OS === 'web') return pickWebFile('image/*', true);
+  return pickNativeCamera();
+}
+
+async function pickNativeCamera(): Promise<PickedFile | null> {
+  const ImagePicker = await import('expo-image-picker');
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) {
+    showToast('Нет доступа к камере');
+    return null;
+  }
+  const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.4, base64: true });
+  if (result.canceled || !result.assets[0]?.base64) return null;
+  const asset = result.assets[0];
+  if (!asset.base64) return null;
+  const mimeType = asset.mimeType || 'image/jpeg';
+  const bytes = Math.floor((asset.base64.length * 3) / 4);
+  if (bytes > MAX_BYTES) {
+    showToast('Файл больше 700 КБ');
+    return null;
+  }
+  const name = asset.fileName || `photo-${Date.now()}.jpg`;
+  return { name, mimeType, data: `data:${mimeType};base64,${asset.base64}` };
+}
+
+export async function pickAttachment(): Promise<PickedFile | null> {
+  if (Platform.OS === 'web') return pickWebFile();
 
   const DocumentPicker = await import('expo-document-picker');
   const FileSystem = await import('expo-file-system/legacy');

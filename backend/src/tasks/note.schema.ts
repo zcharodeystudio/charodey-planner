@@ -19,6 +19,9 @@ export class Note {
 
   @Prop({ default: false })
   pinned: boolean;
+
+  @Prop({ type: Array, default: [] })
+  blocks: Record<string, unknown>[];
 }
 
 export const NoteSchema = SchemaFactory.createForClass(Note);

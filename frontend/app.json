@@ -15,6 +15,7 @@
       }
     },
     "android": {
+      "softwareKeyboardLayoutMode": "pan",
       "package": "com.charodey.planner",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
@@ -38,6 +39,12 @@
           "image": "./assets/icon.png",
           "imageWidth": 180,
           "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Charodey Planner снимает фото для задачи."
         }
       ],
       [

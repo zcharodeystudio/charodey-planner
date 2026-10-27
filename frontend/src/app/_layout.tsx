@@ -23,17 +23,16 @@ function AndroidBackNavigation() {
     if (Platform.OS !== 'android') return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       const path = pathnameRef.current;
-      if (path.includes('/task') || path.includes('/favorites') || path.includes('/login') || path.includes('/register')) {
+      if (path.includes('/login') || path.includes('/register')) {
         if (router.canGoBack()) router.back();
-        else if (path.includes('/login') || path.includes('/register')) router.replace('/(auth)/welcome' as Href);
-        else router.replace('/(app)/(tabs)/today' as Href);
+        else router.replace('/(auth)/welcome' as Href);
         return true;
       }
-      if (path.includes('/today')) {
-        router.navigate('/(app)/(tabs)/profile' as Href);
+      if (router.canGoBack()) {
+        router.back();
         return true;
       }
-      return true;
+      return false;
     });
     return () => subscription.remove();
   }, [router]);

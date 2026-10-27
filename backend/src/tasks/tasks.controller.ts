@@ -40,6 +40,11 @@ export class TasksController {
     return this.tasksService.undated(req.user.id);
   }
 
+  @Get('all')
+  all(@Req() req: AuthedRequest) {
+    return this.tasksService.all(req.user.id);
+  }
+
   @Get(':id')
   get(@Req() req: AuthedRequest, @Param('id') id: string) {
     return this.tasksService.get(req.user.id, id);

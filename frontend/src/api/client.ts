@@ -48,7 +48,8 @@ export type Session = {
 
 export type TaskStep = { id: string; title: string; done: boolean };
 export type TaskFile = { name: string; mimeType: string; data: string };
-export type RepeatMode = 'none' | 'daily' | 'workdays' | 'weekdays' | 'weekly' | 'yearly' | 'custom';
+export type RepeatMode = 'none' | 'daily' | 'workdays' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'custom';
+export type RepeatUnit = 'day' | 'week' | 'month' | 'year';
 
 export type Task = {
   id: string;
@@ -64,6 +65,8 @@ export type Task = {
   position: number;
   repeat: RepeatMode;
   repeatDays: number[];
+  repeatEvery: number;
+  repeatUnit: RepeatUnit;
   steps: TaskStep[];
   files: TaskFile[];
   listId: string | null;
@@ -89,6 +92,8 @@ export type TaskPayload = {
   position?: number;
   repeat?: RepeatMode;
   repeatDays?: number[];
+  repeatEvery?: number;
+  repeatUnit?: RepeatUnit;
   steps?: TaskStep[];
   files?: TaskFile[];
   listId?: string | null;
@@ -113,12 +118,21 @@ export type ProjectBlock = {
 export type ProjectItem = { id: string; name: string; color: string; boards?: BoardItem[] };
 export type BoardColumn = { id: string; name: string };
 export type BoardItem = { id: string; projectId: string; name: string; columns: BoardColumn[] };
+export type NoteBlock = {
+  id: string;
+  type: 'heading' | 'text' | 'bullet' | 'number' | 'todo' | 'table' | 'divider';
+  text: string;
+  items: ProjectBlockItem[];
+  columns: string[];
+  rows: string[][];
+};
 export type NoteItem = {
   id: string;
   title: string;
   body: string;
   color: string;
   pinned: boolean;
+  blocks: NoteBlock[];
   updatedAt: string;
 };
 export type NotePayload = {
@@ -126,7 +140,13 @@ export type NotePayload = {
   body?: string;
   color?: string;
   pinned?: boolean;
+  blocks?: NoteBlock[];
 };
+
+function noteBody(body: NotePayload) {
+  const { blocks, ...rest } = body;
+  return blocks ? { ...rest, blocksJson: JSON.stringify(blocks) } : rest;
+}
 
 const ACCESS = 'accessToken';
 const REFRESH = 'refreshToken';
@@ -258,6 +278,9 @@ export const api = {
   undated() {
     return request<Task[]>('/tasks/undated');
   },
+  allTasks() {
+    return request<Task[]>('/tasks/all');
+  },
   taskDates(from: string, to: string) {
     return request<{ dates: string[] }>(`/tasks/dates?from=${from}&to=${to}`);
   },
@@ -338,10 +361,10 @@ export const api = {
     return request<NoteItem>(`/notes/${id}`);
   },
   createNote(body: NotePayload = {}) {
-    return request<NoteItem>('/notes', { method: 'POST', body: JSON.stringify(body) });
+    return request<NoteItem>('/notes', { method: 'POST', body: JSON.stringify(noteBody(body)) });
   },
   updateNote(id: string, body: NotePayload) {
-    return request<NoteItem>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    return request<NoteItem>(`/notes/${id}`, { method: 'PATCH', body: JSON.stringify(noteBody(body)) });
   },
   deleteNote(id: string) {
     return request<{ ok: boolean }>(`/notes/${id}`, { method: 'DELETE' });

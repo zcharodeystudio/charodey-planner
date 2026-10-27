@@ -1,14 +1,16 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, type Task } from '@/api/client';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TaskCard } from '@/components/task-card';
+import { BackButton } from '@/components/back-button';
 import { Screen } from '@/components/ui/screen';
 import { useTheme } from '@/store/theme-context';
 import { getErrorMessage } from '@/lib/errors';
+import { completeTask, skipOccurrence } from '@/lib/recurrence';
 import { cancelTaskReminder, syncTaskReminder } from '@/lib/notifications';
+import { TaskCardSkeleton } from '@/components/ui/skeleton';
 import { showToast } from '@/lib/toast';
 import { colors, spacing } from '@/theme/theme';
 
@@ -16,6 +18,7 @@ export default function FavoritesScreen() {
   const theme = useTheme();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +41,14 @@ export default function FavoritesScreen() {
     const next = !task.done;
     setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, done: next } : item)));
     try {
+      if (next && task.repeat && task.repeat !== 'none') {
+        const result = await completeTask(task);
+        setTasks((current) => {
+          const replaced = current.map((item) => (item.id === result.done.id ? result.done : item));
+          return result.spawned ? [result.spawned, ...replaced] : replaced;
+        });
+        return;
+      }
       const saved = await api.updateTask(task.id, { done: next });
       await syncTaskReminder(saved);
     } catch (error) {
@@ -79,23 +90,28 @@ export default function FavoritesScreen() {
   };
 
   const remove = async (task: Task) => {
-    setTasks((current) => current.filter((item) => item.id !== task.id));
+    setBusyId(task.id);
     try {
+      const skipped = await skipOccurrence(task);
+      if (skipped) {
+        setTasks((current) => current.map((item) => (item.id === task.id ? skipped : item)));
+        showToast('Этот день пропущен');
+        return;
+      }
       await api.deleteTask(task.id);
       await cancelTaskReminder(task.id);
+      setTasks((current) => current.filter((item) => item.id !== task.id));
     } catch (error) {
-      setTasks((current) => [task, ...current]);
       showToast(getErrorMessage(error));
+    } finally {
+      setBusyId(null);
     }
   };
 
   return (
     <Screen>
       <View style={styles.top}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-          <Text style={styles.backText}>Назад</Text>
-        </Pressable>
+        <BackButton label="Назад" fallback="/(app)/(tabs)/today" />
       </View>
       <Text style={styles.heading}>Избранное</Text>
       {loading ? (
@@ -110,6 +126,7 @@ export default function FavoritesScreen() {
           ) : null}
           {tasks.map((task, index) => (
             <SwipeToDelete key={task.id} onDelete={() => void remove(task)}>
+              {busyId === task.id ? <TaskCardSkeleton /> : (
               <TaskCard
                 task={task}
                 index={index}
@@ -119,6 +136,7 @@ export default function FavoritesScreen() {
                 onImportant={() => void toggleImportant(task)}
                 onToggleStep={(stepId) => void toggleStep(task, stepId)}
               />
+              )}
             </SwipeToDelete>
           ))}
         </ScrollView>
@@ -129,8 +147,6 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   top: { paddingHorizontal: spacing.md },
-  back: { flexDirection: 'row', alignItems: 'center', minHeight: 40 },
-  backText: { fontSize: 16, fontWeight: '600', color: colors.text },
   heading: {
     fontSize: 28,
     fontWeight: '800',

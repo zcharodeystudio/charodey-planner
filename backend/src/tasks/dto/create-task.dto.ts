@@ -20,7 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const REPEATS = ['none', 'daily', 'workdays', 'weekdays', 'weekly', 'yearly', 'custom'];
+const REPEATS = ['none', 'daily', 'workdays', 'weekdays', 'weekly', 'monthly', 'yearly', 'custom'];
 
 export class TaskStepDto {
   @IsString()
@@ -109,11 +109,23 @@ export class CreateTaskDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(7)
+  @ArrayMaxSize(31)
   @IsInt({ each: true })
   @Min(0, { each: true })
-  @Max(6, { each: true })
+  @Max(31, { each: true })
   repeatDays?: number[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  repeatEvery?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsIn(['day', 'week', 'month', 'year'])
+  repeatUnit?: string;
 
   @IsOptional()
   @IsArray()

@@ -19,6 +19,11 @@ export class CreateNoteDto {
   @IsOptional()
   @IsBoolean()
   pinned?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200_000)
+  blocksJson?: string;
 }
 
 export class UpdateNoteDto {
@@ -40,4 +45,9 @@ export class UpdateNoteDto {
   @IsOptional()
   @IsBoolean()
   pinned?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200_000)
+  blocksJson?: string;
 }

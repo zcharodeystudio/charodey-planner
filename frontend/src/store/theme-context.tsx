@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { colors } from '@/theme/theme';
+import { accentFromHex } from '@/lib/color';
 import { getItem, setItem } from '@/lib/storage';
+import { colors } from '@/theme/theme';
 
 export const ACCENTS = [
   { id: 'gold', label: 'Золото', primary: '#E8B423', primaryPressed: '#C49212', primaryMuted: '#F8E7B8', onPrimary: '#3A2614' },
@@ -19,6 +20,7 @@ type ThemeValue = {
   onPrimary: string;
   accentId: AccentId;
   setAccentId: (id: AccentId) => void;
+  setAccentColor: (hex: string) => void;
 };
 
 const fallback = ACCENTS[0];
@@ -29,31 +31,44 @@ const ThemeContext = createContext<ThemeValue>({
   onPrimary: fallback.onPrimary,
   accentId: fallback.id,
   setAccentId: () => undefined,
+  setAccentColor: () => undefined,
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [accentId, setAccentIdState] = useState<AccentId>(fallback.id);
+  const [customHex, setCustomHex] = useState<string | null>(null);
 
   useEffect(() => {
     void getItem('accent').then((saved) => {
+      if (!saved) return;
+      if (saved.startsWith('#')) {
+        setCustomHex(saved);
+        return;
+      }
       if (ACCENTS.some((item) => item.id === saved)) setAccentIdState(saved as AccentId);
     });
   }, []);
 
   const value = useMemo<ThemeValue>(() => {
-    const accent = ACCENTS.find((item) => item.id === accentId) ?? fallback;
+    const preset = ACCENTS.find((item) => item.id === accentId) ?? fallback;
+    const accent = customHex ? accentFromHex(customHex) : preset;
     return {
       primary: accent.primary,
       primaryPressed: accent.primaryPressed,
       primaryMuted: accent.primaryMuted,
       onPrimary: accent.onPrimary,
-      accentId: accent.id,
+      accentId: preset.id,
       setAccentId: (id) => {
+        setCustomHex(null);
         setAccentIdState(id);
         void setItem('accent', id);
       },
+      setAccentColor: (hex) => {
+        setCustomHex(hex);
+        void setItem('accent', hex);
+      },
     };
-  }, [accentId]);
+  }, [accentId, customHex]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

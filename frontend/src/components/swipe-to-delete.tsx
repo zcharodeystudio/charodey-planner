@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useMemo, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { colors, radii } from '@/theme/theme';
@@ -29,12 +29,14 @@ export function SwipeToDelete({
   const width = useSharedValue(0);
   const deleting = useSharedValue(false);
   const removed = useRef(false);
+  const [spinning, setSpinning] = useState(false);
   const onDeleteRef = useRef(onDelete);
   onDeleteRef.current = onDelete;
   const dragRef = useRef({ onDragStart, onDragMove, onDragEnd });
   dragRef.current = { onDragStart, onDragMove, onDragEnd };
 
   const commit = useCallback(() => {
+    setSpinning(true);
     setTimeout(() => {
       if (removed.current) return;
       removed.current = true;
@@ -107,9 +109,11 @@ export function SwipeToDelete({
       }}
     >
       <View pointerEvents="none" style={styles.behind}>
+        {spinning ? <ActivityIndicator color={colors.white} /> : (
         <Animated.View style={iconStyle}>
           <Ionicons name="trash" size={22} color={colors.white} />
         </Animated.View>
+        )}
       </View>
       <GestureDetector gesture={gesture}>
         <Animated.View style={rowStyle}>{children}</Animated.View>

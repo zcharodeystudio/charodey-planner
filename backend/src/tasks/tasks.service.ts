@@ -20,6 +20,8 @@ export type TaskView = {
   position: number;
   repeat: string;
   repeatDays: number[];
+  repeatEvery: number;
+  repeatUnit: string;
   steps: TaskStep[];
   files: TaskFile[];
   listId: string | null;
@@ -103,6 +105,11 @@ export class TasksService {
     return tasks.map((task) => this.toView(task, false)).sort(compareTasks);
   }
 
+  async all(userId: string) {
+    const tasks = await this.taskModel.find({ userId }).exec();
+    return tasks.map((task) => this.toView(task, false)).sort(compareTasks);
+  }
+
   async favorites(userId: string) {
     const tasks = await this.taskModel.find({ userId, favorite: true }).exec();
     return tasks
@@ -145,6 +152,8 @@ export class TasksService {
     if (dto.position !== undefined) $set.position = dto.position;
     if (dto.repeat !== undefined) $set.repeat = dto.repeat;
     if (dto.repeatDays !== undefined) $set.repeatDays = dto.repeatDays;
+    if (dto.repeatEvery !== undefined) $set.repeatEvery = dto.repeatEvery;
+    if (dto.repeatUnit !== undefined) $set.repeatUnit = dto.repeatUnit;
     if (dto.steps !== undefined) $set.steps = dto.steps.map((step) => ({ ...step, title: step.title.trim() }));
     if (dto.files !== undefined) $set.files = dto.files;
     if (dto.listId !== undefined) $set.listId = dto.listId;
@@ -190,6 +199,8 @@ export class TasksService {
       position: task.position ?? (task.createdAt ? new Date(task.createdAt).getTime() : 0),
       repeat: task.repeat || 'none',
       repeatDays: task.repeatDays ?? [],
+      repeatEvery: task.repeatEvery || 1,
+      repeatUnit: task.repeatUnit || 'week',
       steps: task.steps ?? [],
       files: (task.files ?? []).map((file) => ({
         name: file.name,

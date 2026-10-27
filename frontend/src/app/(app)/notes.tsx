@@ -2,8 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type NoteItem } from '@/api/client';
-import { Screen, ScreenLoader } from '@/components/ui/screen';
+import { BackButton } from '@/components/back-button';
+import { ConfirmModal } from '@/components/confirm-modal';
+import { PageSkeleton } from '@/components/ui/skeleton';
+import { Screen } from '@/components/ui/screen';
 import { getErrorMessage } from '@/lib/errors';
 import { NOTE_COLORS } from '@/lib/note-colors';
 import { showToast } from '@/lib/toast';
@@ -12,9 +16,11 @@ import { colors, radii, spacing } from '@/theme/theme';
 
 export default function NotesScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<NoteItem | null>(null);
 
   const load = useCallback(() => {
     void api
@@ -54,18 +60,15 @@ export default function NotesScreen() {
     }
   };
 
-  if (loading && notes.length === 0) return <ScreenLoader />;
+  if (loading && notes.length === 0) return <PageSkeleton />;
 
   return (
     <Screen>
       <View style={styles.top}>
-        <Pressable accessibilityLabel="Назад" onPress={() => router.back()} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.text} />
-          <Text style={styles.backText}>Профиль</Text>
-        </Pressable>
+        <BackButton label="Профиль" fallback="/(app)/(tabs)/profile" />
         <Text style={styles.heading}>Заметки</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Pressable style={[styles.composer, { borderColor: theme.primary }]} onPress={() => void create()} disabled={creating}>
           <Ionicons name="add" size={22} color={theme.primary} />
           <Text style={[styles.composerText, { color: theme.primary }]}>Новая заметка</Text>
@@ -85,6 +88,9 @@ export default function NotesScreen() {
                       <Pressable accessibilityLabel={note.pinned ? 'Открепить' : 'Закрепить'} hitSlop={8} onPress={() => void togglePin(note)}>
                         <Ionicons name={note.pinned ? 'pin' : 'pin-outline'} size={16} color={colors.inkMuted} />
                       </Pressable>
+                      <Pressable accessibilityLabel="Удалить заметку" hitSlop={8} onPress={() => setNoteToDelete(note)}>
+                        <Ionicons name="trash-outline" size={16} color={colors.inkMuted} />
+                      </Pressable>
                     </View>
                     {note.body.trim() ? (
                       <Text style={styles.cardBody} numberOfLines={8}>
@@ -97,14 +103,30 @@ export default function NotesScreen() {
           ))}
         </View>
       </ScrollView>
+      <ConfirmModal
+        visible={Boolean(noteToDelete)}
+        title="Удалить заметку?"
+        message="Заметку нельзя будет вернуть."
+        onClose={() => setNoteToDelete(null)}
+        onConfirm={() => {
+          const id = noteToDelete?.id;
+          setNoteToDelete(null);
+          if (!id) return;
+          void api
+            .deleteNote(id)
+            .then(() => {
+              setNotes((current) => current.filter((item) => item.id !== id));
+              showToast('Заметка удалена');
+            })
+            .catch((error) => showToast(getErrorMessage(error)));
+        }}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   top: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.xs },
-  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-  backText: { fontSize: 16, fontWeight: '700', color: colors.text },
   heading: { fontSize: 28, fontWeight: '800', color: colors.text },
   body: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xl, gap: spacing.md },
   composer: {

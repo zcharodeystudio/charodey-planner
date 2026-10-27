@@ -5,8 +5,10 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector, ScrollView } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { api, type BoardItem, type Task } from '@/api/client';
+import { BackButton } from '@/components/back-button';
 import { DoneTitle } from '@/components/done-mark';
-import { Screen, ScreenLoader } from '@/components/ui/screen';
+import { PageSkeleton } from '@/components/ui/skeleton';
+import { Screen } from '@/components/ui/screen';
 import { todayISO } from '@/lib/dates';
 import { getErrorMessage } from '@/lib/errors';
 import { showToast } from '@/lib/toast';
@@ -133,15 +135,13 @@ export default function BoardScreen() {
     router.push(`/(app)/task/${taskId}` as Href);
   };
 
-  if (loading && !board) return <ScreenLoader />;
+  if (loading && !board) return <PageSkeleton />;
 
   return (
     <Screen>
       <View ref={rootRef} style={styles.root} collapsable={false}>
         <View style={styles.top}>
-          <Pressable accessibilityLabel="Назад" onPress={() => router.back()} hitSlop={8} style={styles.back}>
-            <Ionicons name="chevron-back" size={26} color={colors.text} />
-          </Pressable>
+          <BackButton label="Назад" />
           <Text style={styles.heading} numberOfLines={1}>
             {board?.name ?? 'Доска'}
           </Text>

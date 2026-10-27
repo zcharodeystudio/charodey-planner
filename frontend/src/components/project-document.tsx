@@ -2,10 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type BoardItem, type ProjectBlock, type ProjectBlockType, type ProjectItem, type ProjectPageLink } from '@/api/client';
+import { goBack } from '@/components/back-button';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { Button } from '@/components/ui/button';
-import { Screen, ScreenLoader } from '@/components/ui/screen';
+import { PageSkeleton } from '@/components/ui/skeleton';
+import { Screen } from '@/components/ui/screen';
 import { useAndroidBack } from '@/lib/android-back';
 import { getErrorMessage } from '@/lib/errors';
 import { showToast } from '@/lib/toast';
@@ -28,6 +31,7 @@ const itemId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 export function ProjectDocument({ projectId, pageId }: { projectId: string; pageId?: string }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const [project, setProject] = useState<ProjectItem | null>(null);
   const [boards, setBoards] = useState<BoardItem[]>([]);
   const [blocks, setBlocks] = useState<ProjectBlock[]>([]);
@@ -80,8 +84,13 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
       setConfirmPage(false);
       return true;
     }
-    return false;
-  }, [confirmPage, menu, namingBoard, pageSheet]);
+    if (!pageId) {
+      router.navigate('/(app)/projects' as Href);
+      return true;
+    }
+    goBack(`/(app)/project/${projectId}` as Href);
+    return true;
+  }, [confirmPage, menu, namingBoard, pageId, pageSheet, projectId]);
   useAndroidBack(onHardwareBack);
 
   const saveLater = (block: ProjectBlock) => {
@@ -153,16 +162,21 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
     router.push(`/(app)/doc/${projectId}/${targetId}` as Href);
   };
 
-  if (loading && !project) return <ScreenLoader />;
+  if (loading && !project) return <PageSkeleton />;
 
   const otherPages = pages.filter((page) => page.id !== pageId);
 
   return (
     <Screen>
       <View style={styles.top}>
-        <Pressable accessibilityLabel="Назад" onPress={() => router.back()} hitSlop={12} style={styles.back}>
+        <Pressable
+          accessibilityLabel={pageId ? 'Назад' : 'Все проекты'}
+          onPress={() => (pageId ? goBack(`/(app)/project/${projectId}` as Href) : router.navigate('/(app)/projects' as Href))}
+          hitSlop={12}
+          style={styles.back}
+        >
           <Ionicons name="chevron-back" size={26} color={colors.text} />
-          <Text style={styles.backText}>{pageId ? (project?.name ?? 'Проект') : 'Профиль'}</Text>
+          <Text style={styles.backText}>{pageId ? (project?.name ?? 'Проект') : 'Все проекты'}</Text>
         </Pressable>
         {pageId ? (
           <Pressable accessibilityLabel="Удалить страницу" hitSlop={8} onPress={() => setConfirmPage(true)}>
@@ -170,7 +184,7 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
           </Pressable>
         ) : null}
       </View>
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + spacing.xl }]} keyboardShouldPersistTaps="handled">
         {pageId ? (
           <TextInput
             value={pageTitle}
@@ -198,17 +212,22 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
         ))}
         {namingBoard ? (
           <View style={styles.create}>
-            <TextInput
-              autoFocus
-              value={boardName}
-              onChangeText={setBoardName}
-              onSubmitEditing={() => {
-                if (boardName.trim()) void add('board', { name: boardName.trim() });
-              }}
-              placeholder="Название доски"
-              placeholderTextColor={colors.inkMuted}
-              style={styles.input}
-            />
+            <View style={styles.nameRow}>
+              <TextInput
+                autoFocus
+                value={boardName}
+                onChangeText={setBoardName}
+                onSubmitEditing={() => {
+                  if (boardName.trim()) void add('board', { name: boardName.trim() });
+                }}
+                placeholder="Название доски"
+                placeholderTextColor={colors.inkMuted}
+                style={[styles.input, styles.flex]}
+              />
+              <Pressable accessibilityLabel="Отмена" onPress={() => { setNamingBoard(false); setBoardName(''); }} hitSlop={8}>
+                <Text style={styles.cancel}>Отмена</Text>
+              </Pressable>
+            </View>
             <Button title="Создать доску" onPress={() => { if (boardName.trim()) void add('board', { name: boardName.trim() }); }} />
           </View>
         ) : (
@@ -219,7 +238,7 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
       </ScrollView>
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={styles.backdrop} onPress={() => setMenu(false)}>
-          <Pressable style={styles.sheet} onPress={() => undefined}>
+          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.xl }]} onPress={() => undefined}>
             <Text style={styles.sheetTitle}>Добавить</Text>
             {ADDITIONS.map((item) => (
               <Pressable
@@ -248,19 +267,24 @@ export function ProjectDocument({ projectId, pageId }: { projectId: string; page
       </Modal>
       <Modal visible={pageSheet} transparent animationType="fade" onRequestClose={() => setPageSheet(false)}>
         <Pressable style={styles.backdrop} onPress={() => setPageSheet(false)}>
-          <Pressable style={styles.sheet} onPress={() => undefined}>
+          <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + spacing.xl }]} onPress={() => undefined}>
             <Text style={styles.sheetTitle}>Страница</Text>
-            <TextInput
-              autoFocus
-              value={pageName}
-              onChangeText={setPageName}
-              onSubmitEditing={() => {
-                if (pageName.trim()) void add('page', { name: pageName.trim() });
-              }}
-              placeholder="Название новой страницы"
-              placeholderTextColor={colors.inkMuted}
-              style={styles.input}
-            />
+            <View style={styles.nameRow}>
+              <TextInput
+                autoFocus
+                value={pageName}
+                onChangeText={setPageName}
+                onSubmitEditing={() => {
+                  if (pageName.trim()) void add('page', { name: pageName.trim() });
+                }}
+                placeholder="Название новой страницы"
+                placeholderTextColor={colors.inkMuted}
+                style={[styles.input, styles.flex]}
+              />
+              <Pressable accessibilityLabel="Отмена" onPress={() => { setPageSheet(false); setPageName(''); }} hitSlop={8}>
+                <Text style={styles.cancel}>Отмена</Text>
+              </Pressable>
+            </View>
             <Button title="Создать страницу" onPress={() => { if (pageName.trim()) void add('page', { name: pageName.trim() }); }} />
             {otherPages.length > 0 ? <Text style={styles.sheetTitle}>Ссылка на страницу</Text> : null}
             {otherPages.map((page) => (
@@ -302,6 +326,9 @@ function BlockEditor({
   onOpenPage: () => void;
 }) {
   const theme = useTheme();
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const dropping = useRef(false);
+  const itemRefs = useRef<Record<string, TextInput | null>>({});
   if (block.type === 'divider') {
     return (
       <View style={styles.blockRow}>
@@ -413,6 +440,20 @@ function BlockEditor({
     );
   }
   const marker = (index: number) => (block.type === 'number' ? `${index + 1}.` : block.type === 'bullet' ? '•' : '');
+  const dropItem = (itemId: string) => {
+    const index = block.items.findIndex((entry) => entry.id === itemId);
+    const next = block.items.filter((entry) => entry.id !== itemId);
+    const focus = next[index - 1] ?? next[index];
+    onChange({ ...block, items: next });
+    if (focus) requestAnimationFrame(() => itemRefs.current[focus.id]?.focus());
+  };
+  const eraseItem = (item: (typeof block.items)[number]) => {
+    if (item.done || item.text.length === 0) {
+      dropItem(item.id);
+      return;
+    }
+    onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text: entry.text.slice(0, -1) } : entry)) });
+  };
   return (
     <View style={styles.listBlock}>
       <View style={styles.blockRow}>
@@ -427,12 +468,46 @@ function BlockEditor({
                 <Text style={styles.marker}>{marker(index)}</Text>
               )}
               <TextInput
+                ref={(node) => {
+                  itemRefs.current[item.id] = node;
+                }}
                 value={item.text}
-                onChangeText={(text) => onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text } : entry)) })}
+                autoFocus={focusId === item.id}
+                onKeyPress={(event) => {
+                  if (block.type !== 'todo' || event.nativeEvent.key !== 'Backspace') return;
+                  if (!item.done && item.text.length > 0) return;
+                  dropping.current = true;
+                  (event as { preventDefault?: () => void }).preventDefault?.();
+                  dropItem(item.id);
+                }}
+                onChangeText={(text) => {
+                  if (dropping.current) {
+                    dropping.current = false;
+                    return;
+                  }
+                  if (block.type === 'todo' && item.done && text.length < item.text.length) {
+                    dropItem(item.id);
+                    return;
+                  }
+                  onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text } : entry)) });
+                }}
+                onSubmitEditing={() => {
+                  if (block.type !== 'todo') return;
+                  const id = itemId();
+                  setFocusId(id);
+                  onChange({ ...block, items: [...block.items, { id, text: '', done: false }] });
+                }}
                 placeholder="Пункт"
                 placeholderTextColor={colors.inkMuted}
+                returnKeyType={block.type === 'todo' ? 'next' : 'default'}
+                blurOnSubmit={block.type !== 'todo'}
                 style={[styles.itemInput, item.done && styles.done]}
               />
+              {block.type === 'todo' ? (
+                <Pressable accessibilityLabel="Стереть" hitSlop={6} onPress={() => eraseItem(item)}>
+                  <Ionicons name="backspace-outline" size={18} color={colors.textSecondary} />
+                </Pressable>
+              ) : null}
             </View>
           ))}
           <Pressable onPress={() => onChange({ ...block, items: [...block.items, { id: itemId(), text: '', done: false }] })}>
@@ -463,6 +538,8 @@ const styles = StyleSheet.create({
   hint: { fontSize: 14, lineHeight: 20, color: colors.textSecondary },
   add: { minHeight: 44, justifyContent: 'center' },
   create: { gap: spacing.sm },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cancel: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
   input: {
     minHeight: 48,
     borderWidth: 1,

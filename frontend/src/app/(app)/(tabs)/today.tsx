@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -68,8 +68,13 @@ export default function TodayScreen() {
       setCalendar(false);
       return true;
     }
+    if (planner.listId) {
+      planner.apply({ listId: null, scope: 'all' });
+      router.navigate('/(app)/lists' as Href);
+      return true;
+    }
     return false;
-  }, [calendar, menu, periodOpen]);
+  }, [calendar, menu, periodOpen, planner]);
   useAndroidBack(onHardwareBack);
 
   const listName = lists.find((list) => list.id === planner.listId)?.name;
@@ -100,6 +105,21 @@ export default function TodayScreen() {
     <Screen>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
+          {planner.listId ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Все списки"
+              onPress={() => {
+                planner.apply({ listId: null, scope: 'all' });
+                router.navigate('/(app)/lists' as Href);
+              }}
+              hitSlop={8}
+              style={styles.back}
+            >
+              <Ionicons name="chevron-back" size={22} color={colors.text} />
+              <Text style={styles.backText}>Все списки</Text>
+            </Pressable>
+          ) : null}
           <Text style={styles.title} numberOfLines={1}>
             {title}
           </Text>
@@ -132,10 +152,10 @@ export default function TodayScreen() {
                 <Pressable
                   key={item.id}
                   onPress={() => {
-                    if (item.kind === 'scope') planner.apply({ scope: item.id, listId: null });
+                    if (item.kind === 'scope') planner.apply({ scope: item.id, listId: null, rangePinned: true });
                     else {
                       if (item.id === 'day') setDate(todayISO());
-                      planner.apply({ range: item.id, scope: 'all' });
+                      planner.apply({ range: item.id, scope: 'all', rangePinned: true });
                     }
                     setPeriodOpen(false);
                   }}
@@ -201,6 +221,8 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   headerCopy: { flex: 1, gap: 4 },
+  back: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', minHeight: 32 },
+  backText: { fontSize: 16, fontWeight: '700', color: colors.text },
   periodRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   periodBtn: {
     flexDirection: 'row',

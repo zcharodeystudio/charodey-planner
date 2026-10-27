@@ -41,7 +41,31 @@ export function isOverdue(
   if (task.done) return false;
   if (task.dueDate && task.dueDate < today) return true;
   if (!task.date) return false;
-  return (task.repeat || 'none') === 'none' && task.date < today;
+  return task.date < today;
+}
+
+export function clock(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+export function upcomingMonday(now = new Date()) {
+  const date = new Date(now);
+  const day = date.getDay();
+  const pastNine = date.getHours() > 9 || (date.getHours() === 9 && date.getMinutes() > 0);
+  if (day === 1 && pastNine) date.setDate(date.getDate() + 7);
+  else if (day !== 1) date.setDate(date.getDate() + (day === 0 ? 1 : 8 - day));
+  return formatISODate(date);
+}
+
+export function datePresets(now = new Date()) {
+  const today = formatISODate(now);
+  const later = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  return [
+    { id: 'now', label: 'Сейчас', date: today, time: clock(now) },
+    { id: 'later', label: 'Позже', date: formatISODate(later), time: clock(later) },
+    { id: 'tomorrow', label: 'Завтра', date: shiftDays(today, 1), time: null as string | null },
+    { id: 'monday', label: 'Пн 9:00', date: upcomingMonday(now), time: '09:00' },
+  ];
 }
 
 export function formatISODate(date: Date) {

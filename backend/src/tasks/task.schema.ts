@@ -72,6 +72,12 @@ export class Task {
   @Prop({ type: [Number], default: [] })
   repeatDays: number[];
 
+  @Prop({ default: 1 })
+  repeatEvery: number;
+
+  @Prop({ default: 'week' })
+  repeatUnit: string;
+
   @Prop({ type: [TaskStepSchema], default: [] })
   steps: TaskStep[];
 

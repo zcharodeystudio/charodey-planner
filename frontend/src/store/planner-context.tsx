@@ -22,6 +22,7 @@ type PlannerPrefs = {
   layout: TaskLayout;
   rangeFrom: string | null;
   rangeTo: string | null;
+  rangePinned: boolean;
 };
 
 type PlannerValue = PlannerPrefs & {
@@ -53,7 +54,7 @@ function normalizeScope(value: unknown): TaskScope {
 
 export function PlannerProvider({ children }: { children: React.ReactNode }) {
   const [sort, setSortState] = useState<SortMode>(null);
-  const [range, setRangeState] = useState<ViewRange>('day');
+  const [range, setRangeState] = useState<ViewRange>('all');
   const [hideDone, setHideDoneState] = useState(false);
   const [listId, setListIdState] = useState<string | null>(null);
   const [newOnTop, setNewOnTopState] = useState(false);
@@ -62,7 +63,8 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
   const [layout, setLayoutState] = useState<TaskLayout>('list');
   const [rangeFrom, setRangeFromState] = useState<string | null>(null);
   const [rangeTo, setRangeToState] = useState<string | null>(null);
-  const current = { sort, range, hideDone, listId, newOnTop, scope, manualDays, layout, rangeFrom, rangeTo };
+  const [rangePinned, setRangePinnedState] = useState(false);
+  const current = { sort, range, hideDone, listId, newOnTop, scope, manualDays, layout, rangeFrom, rangeTo, rangePinned };
   const prefsRef = useRef<PlannerPrefs>(current);
   prefsRef.current = current;
 
@@ -72,7 +74,9 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       try {
         const saved = JSON.parse(raw) as Partial<PlannerPrefs> & { groupByDate?: boolean };
         if (saved.sort === null || saved.sort === 'time' || saved.sort === 'important') setSortState(saved.sort);
-        if (saved.range) setRangeState(normalizeRange(saved.range));
+        if (saved.rangePinned && saved.range) setRangeState(normalizeRange(saved.range));
+        else setRangeState('all');
+        setRangePinnedState(Boolean(saved.rangePinned));
         if (typeof saved.hideDone === 'boolean') setHideDoneState(saved.hideDone);
         if (typeof saved.listId === 'string' || saved.listId === null) setListIdState(saved.listId ?? null);
         if (typeof saved.newOnTop === 'boolean') setNewOnTopState(saved.newOnTop);
@@ -104,6 +108,7 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       setLayoutState(next.layout);
       setRangeFromState(next.rangeFrom);
       setRangeToState(next.rangeTo);
+      setRangePinnedState(next.rangePinned);
       persist(next);
     };
     return {
@@ -115,7 +120,7 @@ export function PlannerProvider({ children }: { children: React.ReactNode }) {
       setListId: (next) => apply({ listId: next }),
       setNewOnTop: (next) => apply({ newOnTop: next }),
     };
-  }, [current.hideDone, current.layout, current.listId, current.manualDays, current.newOnTop, current.range, current.rangeFrom, current.rangeTo, current.scope, current.sort]);
+  }, [current.hideDone, current.layout, current.listId, current.manualDays, current.newOnTop, current.range, current.rangeFrom, current.rangePinned, current.rangeTo, current.scope, current.sort]);
 
   return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 }

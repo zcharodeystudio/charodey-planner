@@ -44,8 +44,10 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Введите пароль'),
 });
 
-export const REPEAT_MODES = ['none', 'daily', 'workdays', 'weekdays', 'weekly', 'yearly', 'custom'] as const;
+export const REPEAT_MODES = ['none', 'daily', 'workdays', 'weekdays', 'weekly', 'monthly', 'yearly', 'custom'] as const;
 export type RepeatMode = (typeof REPEAT_MODES)[number];
+export const REPEAT_UNITS = ['day', 'week', 'month', 'year'] as const;
+export type RepeatUnit = (typeof REPEAT_UNITS)[number];
 
 export const taskStepSchema = z.object({
   id: z.string().min(1).max(40),
@@ -73,7 +75,9 @@ export const taskInputSchema = z.object({
   favorite: z.boolean().optional(),
   position: z.number().int().optional(),
   repeat: z.enum(REPEAT_MODES).optional(),
-  repeatDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  repeatDays: z.array(z.number().int().min(0).max(31)).max(31).optional(),
+  repeatEvery: z.number().int().min(1).max(99).optional(),
+  repeatUnit: z.enum(REPEAT_UNITS).optional(),
   steps: z.array(taskStepSchema).max(20).optional(),
   files: z.array(taskFileSchema).max(3).optional(),
   listId: z.union([z.string().min(1), z.null()]).optional(),
@@ -88,20 +92,75 @@ export function weekdayIndex(iso: string) {
   return (date.getUTCDay() + 6) % 7;
 }
 
-export function occursOn(
-  task: { date?: string | null; repeat?: string | null; repeatDays?: number[] | null },
-  iso: string,
-) {
-  if (!task.date || iso < task.date) return false;
-  const repeat = task.repeat || 'none';
-  if (repeat === 'none') return task.date === iso;
-  if (repeat === 'daily') return true;
-  const index = weekdayIndex(iso);
-  if (repeat === 'workdays' || repeat === 'weekdays') return index <= 4;
-  if (repeat === 'weekly') return index === weekdayIndex(task.date);
-  if (repeat === 'yearly') return iso.slice(5) === task.date.slice(5);
-  if (repeat === 'custom') return (task.repeatDays ?? []).includes(index);
-  return task.date === iso;
+export function occursOn(task: { date?: string | null }, iso: string) {
+  return Boolean(task.date) && task.date === iso;
+}
+
+function pad(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function addDays(iso: string, days: number) {
+  const [year, month, day] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+function addMonths(iso: string, count: number) {
+  const [year, month, day] = iso.split('-').map(Number);
+  const total = month - 1 + count;
+  const nextYear = year + Math.floor(total / 12);
+  const nextMonth = ((total % 12) + 12) % 12;
+  const last = new Date(Date.UTC(nextYear, nextMonth + 1, 0)).getUTCDate();
+  return `${nextYear}-${pad(nextMonth + 1)}-${pad(Math.min(day, last))}`;
+}
+
+export function nextRepeatDate(date: string, repeat: string, repeatDays: number[] = [], every = 1, unit: RepeatUnit = 'week') {
+  if (!date || !repeat || repeat === 'none') return null;
+  const step = Math.min(99, Math.max(1, every || 1));
+  if (repeat === 'daily') return addDays(date, 1);
+  if (repeat === 'weekly') return addDays(date, 7);
+  if (repeat === 'workdays' || repeat === 'weekdays') {
+    let cursor = addDays(date, 1);
+    for (let index = 0; index < 7; index += 1) {
+      if (weekdayIndex(cursor) <= 4) return cursor;
+      cursor = addDays(cursor, 1);
+    }
+    return null;
+  }
+  if (repeat === 'yearly') return addMonths(date, 12);
+  if (repeat === 'monthly') {
+    const day = Number(date.slice(8));
+    const wanted = repeatDays.find((value) => value >= 1 && value <= 31) ?? day;
+    const shifted = addMonths(date, 1);
+    const [year, month] = shifted.split('-').map(Number);
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return `${year}-${pad(month)}-${pad(Math.min(wanted, last))}`;
+  }
+  if (repeat === 'custom') {
+    if (unit === 'day') return addDays(date, step);
+    if (unit === 'year') return addMonths(date, step * 12);
+    if (unit === 'month') {
+      const days = [...new Set(repeatDays.filter((value) => value >= 0 && value <= 6))].sort((left, right) => left - right);
+      if (!days.length) return addMonths(date, step);
+      const current = weekdayIndex(date);
+      const later = days.find((value) => value > current);
+      if (later !== undefined) return addDays(date, later - current);
+      let cursor = addMonths(date, step);
+      for (let index = 0; index < 7; index += 1) {
+        if (days.includes(weekdayIndex(cursor))) return cursor;
+        cursor = addDays(cursor, 1);
+      }
+      return cursor;
+    }
+    const days = [...new Set(repeatDays.filter((value) => value >= 0 && value <= 6))].sort((left, right) => left - right);
+    if (!days.length) return null;
+    const current = weekdayIndex(date);
+    const later = days.find((value) => value > current);
+    if (later !== undefined) return addDays(date, later - current);
+    return addDays(date, 7 - current + (step - 1) * 7 + days[0]);
+  }
+  return null;
 }
 
 export const taskUpdateSchema = taskInputSchema.partial();
