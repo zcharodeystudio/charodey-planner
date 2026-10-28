@@ -7,7 +7,7 @@ import { api, type TaskListItem } from '@/api/client';
 import { PeriodSheet } from '@/components/period-sheet';
 import { TaskList } from '@/components/task-list';
 import { Screen } from '@/components/ui/screen';
-import { formatLongDate, todayISO, type ViewRange } from '@/lib/dates';
+import { formatDayLabel, formatLongDate, todayISO, type ViewRange } from '@/lib/dates';
 import { useAndroidBack } from '@/lib/android-back';
 import { useSelectedDate } from '@/store/date-context';
 import { SORTS, usePlanner, type TaskLayout, type TaskScope } from '@/store/planner-context';
@@ -94,7 +94,7 @@ export default function TodayScreen() {
                 : planner.range === 'custom' && planner.rangeFrom && planner.rangeTo && planner.rangeFrom !== planner.rangeTo
                   ? `${formatLongDate(planner.rangeFrom)} — ${formatLongDate(planner.rangeTo)}`
                   : planner.range === 'custom' && planner.rangeFrom
-                    ? formatLongDate(planner.rangeFrom)
+                    ? formatDayLabel(planner.rangeFrom)
                     : planner.range === 'custom'
                       ? 'Настроить'
                       : 'Сегодня';

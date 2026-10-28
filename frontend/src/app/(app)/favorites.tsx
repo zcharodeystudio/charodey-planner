@@ -124,12 +124,11 @@ export default function FavoritesScreen() {
               <Text style={styles.emptyText}>Нажмите звёздочку на задаче, и она появится здесь.</Text>
             </View>
           ) : null}
-          {tasks.map((task, index) => (
+          {tasks.map((task) => (
             <SwipeToDelete key={task.id} onDelete={() => void remove(task)}>
               {busyId === task.id ? <TaskCardSkeleton /> : (
               <TaskCard
                 task={task}
-                index={index}
                 onPress={() => router.push(`/(app)/task/${task.id}` as Href)}
                 onToggle={() => void toggle(task)}
                 onFavorite={() => void unfavorite(task)}

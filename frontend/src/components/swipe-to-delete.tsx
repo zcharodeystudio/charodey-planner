@@ -96,6 +96,7 @@ export function SwipeToDelete({
   const gesture = useMemo(() => (draggable ? Gesture.Exclusive(drag, pan) : pan), [drag, draggable, pan]);
 
   const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+  const behindStyle = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.abs(x.value) / 12) }));
   const iconStyle = useAnimatedStyle(() => {
     const progress = Math.min(1, Math.abs(x.value) / TRIGGER);
     return { opacity: progress, transform: [{ scale: 0.65 + progress * 0.35 }] };
@@ -108,13 +109,13 @@ export function SwipeToDelete({
         width.value = event.nativeEvent.layout.width;
       }}
     >
-      <View pointerEvents="none" style={styles.behind}>
+      <Animated.View pointerEvents="none" style={[styles.behind, behindStyle]}>
         {spinning ? <ActivityIndicator color={colors.white} /> : (
         <Animated.View style={iconStyle}>
           <Ionicons name="trash" size={22} color={colors.white} />
         </Animated.View>
         )}
-      </View>
+      </Animated.View>
       <GestureDetector gesture={gesture}>
         <Animated.View style={rowStyle}>{children}</Animated.View>
       </GestureDetector>

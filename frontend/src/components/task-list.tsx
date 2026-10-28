@@ -3,14 +3,13 @@ import { Href, router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { occursOn } from '@charodey/validation';
 import { api, type ProjectItem, type Task, type TaskListItem } from '@/api/client';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TaskCard } from '@/components/task-card';
 import { TaskCardSkeleton } from '@/components/ui/skeleton';
 import { WhenSheet } from '@/components/when-sheet';
-import { datePresets, formatLongDate, isOverdue, rangeBounds, todayISO, type ViewRange } from '@/lib/dates';
+import { datePresets, formatDayLabel, isOverdue, rangeBounds, todayISO, type ViewRange } from '@/lib/dates';
 import { completeTask, skipOccurrence } from '@/lib/recurrence';
 import { clearTaskRefreshing, useTaskRefresh } from '@/lib/task-refresh';
 import { getErrorMessage } from '@/lib/errors';
@@ -56,7 +55,6 @@ function normalize(task: Task): Task {
 
 export function TaskList({ date, tools = false }: { date: string; tools?: boolean }) {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const refreshState = useTaskRefresh();
   const planner = usePlanner();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -70,13 +68,14 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   const [quickDate, setQuickDate] = useState(todayISO());
   const [quickTime, setQuickTime] = useState<string | null>(null);
   const [whenOpen, setWhenOpen] = useState(false);
-  const [keyboard, setKeyboard] = useState(0);
+  const [lift, setLift] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [swipeKey, setSwipeKey] = useState(0);
   const [savingQuick, setSavingQuick] = useState(false);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set());
   const savingQuickRef = useRef(false);
   const ignoreHide = useRef(false);
+  const whenOpenRef = useRef(false);
   const loadGen = useRef(0);
   const [drag, setDrag] = useState<{ task: Task; day: string; y: number; hoverKey: string | null } | null>(null);
   const dragRef = useRef(drag);
@@ -89,6 +88,8 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   const scrollHostRef = useRef<View>(null);
   const wrapRef = useRef<View>(null);
   const wrapTop = useRef(0);
+  const dockRef = useRef<View>(null);
+  const liftRef = useRef(0);
 
   const bounds = tools ? rangeBounds(date, planner.range, planner.rangeFrom, planner.rangeTo) : { from: date, to: date };
 
@@ -183,18 +184,42 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (event) => setKeyboard(event.endCoordinates.height));
+    let placeTimer: ReturnType<typeof setTimeout> | undefined;
+    const placeAboveKeyboard = (keyboardTop: number) => {
+      if (keyboardTop < 80) return;
+      dockRef.current?.measureInWindow((_x, y, _width, height) => {
+        const overflow = y + height - keyboardTop;
+        if (Math.abs(overflow) < 2) return;
+        const next = Math.max(0, liftRef.current + overflow);
+        liftRef.current = next;
+        setLift(next);
+      });
+    };
+    const show = Keyboard.addListener(showEvent, (event) => {
+      if (Platform.OS === 'android') return;
+      const keyboardTop = event.endCoordinates.screenY;
+      placeAboveKeyboard(keyboardTop);
+      clearTimeout(placeTimer);
+      placeTimer = setTimeout(() => placeAboveKeyboard(keyboardTop), 280);
+    });
     const hide = Keyboard.addListener(hideEvent, () => {
-      setKeyboard(0);
-      if (ignoreHide.current || savingQuickRef.current) {
-        ignoreHide.current = false;
-        return;
-      }
-      setQuick(false);
-      setDraft('');
-      setWhenOpen(false);
+      clearTimeout(placeTimer);
+      liftRef.current = 0;
+      setLift(0);
+      clearTimeout(placeTimer);
+      placeTimer = setTimeout(() => {
+        if (ignoreHide.current || savingQuickRef.current || whenOpenRef.current) {
+          ignoreHide.current = false;
+          return;
+        }
+        setQuick(false);
+        setDraft('');
+        whenOpenRef.current = false;
+        setWhenOpen(false);
+      }, 80);
     });
     return () => {
+      clearTimeout(placeTimer);
       show.remove();
       hide.remove();
     };
@@ -486,7 +511,6 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
                       ) : (
                       <TaskCard
                         task={row.task}
-                        index={row.index}
                         {...taskBadges(row.task, lists, projects, !planner.listId)}
                         onOpenList={
                           row.task.listId
@@ -522,63 +546,89 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
           </Text>
         </View>
       ) : null}
-      <View style={[styles.quickDock, { bottom: spacing.md + Math.max(0, keyboard - (58 + insets.bottom)) }]}>
-        {quick && !(tools && planner.scope === 'untimed') ? (
-          <View style={styles.presets}>
-            {datePresets().map((item) => {
-              const active = quickDate === item.date && quickTime === item.time;
-              return (
-                <Pressable key={item.id} onPress={() => { setQuickDate(item.date); setQuickTime(item.time); }} style={[styles.preset, active && { backgroundColor: theme.primary, borderColor: theme.primary }]}>
-                  <Text style={[styles.presetText, active && { color: theme.onPrimary }]}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable onPress={() => { if (keyboard > 0) ignoreHide.current = true; setWhenOpen(true); }} style={[styles.preset, { borderColor: theme.primary }]}>
-              <Text style={[styles.presetText, { color: theme.primaryPressed }]}>Дата</Text>
+      <View ref={dockRef} style={[styles.quickDock, { bottom: spacing.md + lift }]}>
+        <View style={quick ? styles.quickCard : undefined}>
+          {quick && !(tools && planner.scope === 'untimed') ? (
+            <View style={styles.presets}>
+              {datePresets().map((item) => {
+                const active = quickDate === item.date && quickTime === item.time;
+                return (
+                  <Pressable key={item.id} onPress={() => { setQuickDate(item.date); setQuickTime(item.time); }} style={[styles.preset, active && { backgroundColor: theme.primary, borderColor: theme.primary }]}>
+                    <Text numberOfLines={1} style={[styles.presetText, active && { color: theme.onPrimary }]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Дата"
+                onPressIn={() => {
+                  ignoreHide.current = true;
+                }}
+                onPress={() => {
+                  ignoreHide.current = true;
+                  whenOpenRef.current = true;
+                  setWhenOpen(true);
+                }}
+                style={styles.calendarBtn}
+              >
+                <Ionicons name="calendar-outline" size={20} color={theme.primaryPressed} />
+              </Pressable>
+            </View>
+          ) : null}
+          <View style={styles.quickRow}>
+            {quick ? (
+              <TextInput
+                autoFocus
+                value={draft}
+                onChangeText={setDraft}
+                onSubmitEditing={() => void submitQuick()}
+                placeholder="Новая задача"
+                placeholderTextColor={colors.inkMuted}
+                returnKeyType="done"
+                editable={!savingQuick}
+                style={styles.quickInput}
+              />
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={quick ? 'Добавить задачу' : 'Создать задачу'}
+              onPress={() => {
+                if (!quick) {
+                  setQuickDate(todayISO());
+                  setQuickTime(null);
+                  setQuick(true);
+                  return;
+                }
+                void submitQuick();
+              }}
+              style={[styles.fab, { backgroundColor: theme.primary }]}
+            >
+              {savingQuick ? <ActivityIndicator color={theme.onPrimary} /> : <Ionicons name={quick ? 'checkmark' : 'add'} size={32} color={theme.onPrimary} />}
             </Pressable>
           </View>
-        ) : null}
-        <View style={styles.quickRow}>
-          {quick ? (
-            <TextInput
-              autoFocus
-              value={draft}
-              onChangeText={setDraft}
-              onSubmitEditing={() => void submitQuick()}
-              placeholder="Новая задача"
-              placeholderTextColor={colors.inkMuted}
-              returnKeyType="done"
-              editable={!savingQuick}
-              style={styles.quickInput}
-            />
-          ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={quick ? 'Добавить задачу' : 'Создать задачу'}
-            onPress={() => {
-              if (!quick) {
-                setQuickDate(todayISO());
-                setQuickTime(null);
-                setQuick(true);
-                return;
-              }
-              void submitQuick();
-            }}
-            style={[styles.fab, { backgroundColor: theme.primary }]}
-          >
-            {savingQuick ? <ActivityIndicator color={theme.onPrimary} /> : <Ionicons name={quick ? 'checkmark' : 'add'} size={32} color={theme.onPrimary} />}
-          </Pressable>
         </View>
       </View>
       <WhenSheet
         visible={whenOpen}
         date={quickDate}
         time={quickTime}
-        onClose={() => setWhenOpen(false)}
+        onClose={() => {
+          whenOpenRef.current = false;
+          ignoreHide.current = true;
+          setWhenOpen(false);
+          setTimeout(() => {
+            ignoreHide.current = false;
+          }, 400);
+        }}
         onApply={(nextDate, nextTime) => {
           setQuickDate(nextDate);
           setQuickTime(nextTime);
+          whenOpenRef.current = false;
+          ignoreHide.current = true;
           setWhenOpen(false);
+          setTimeout(() => {
+            ignoreHide.current = false;
+          }, 400);
         }}
       />
     </View>
@@ -629,7 +679,7 @@ function buildRows(
     if (dayTasks.length) groups.set(cursor, sortTasks(dayTasks, planner.sort, planner.newOnTop, planner.manualDays.includes(cursor)));
   }
   for (const [day, dayTasks] of groups) {
-    rows.push({ kind: 'header', key: day, title: formatLongDate(day), day, count: dayTasks.length });
+    rows.push({ kind: 'header', key: day, title: formatDayLabel(day), day, count: dayTasks.length });
     index = appendTasks(rows, dayTasks, day, index);
   }
   return rows;
@@ -652,7 +702,7 @@ function groupedRows(tasks: Task[], planner: { sort: SortMode; newOnTop: boolean
   let index = 0;
   for (const day of [...groups.keys()].sort()) {
     const dayTasks = sortTasks(groups.get(day) ?? [], planner.sort, planner.newOnTop, planner.manualDays.includes(day));
-    rows.push({ kind: 'header', key: day, title: day === 'undated' ? 'Без даты' : formatLongDate(day), day, count: dayTasks.length });
+    rows.push({ kind: 'header', key: day, title: day === 'undated' ? 'Без даты' : formatDayLabel(day), day, count: dayTasks.length });
     index = appendTasks(rows, dayTasks, day, index);
   }
   return rows;
@@ -758,12 +808,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: spacing.lg,
     right: spacing.lg,
-    gap: spacing.sm,
     zIndex: 2,
   },
-  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, justifyContent: 'flex-end' },
-  preset: { borderWidth: 1, borderColor: colors.border, borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.surface },
+  quickCard: {
+    backgroundColor: colors.white,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    gap: spacing.sm,
+  },
+  presets: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  preset: { flexGrow: 1, flexShrink: 1, alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radii.full, paddingHorizontal: 6, paddingVertical: 6, backgroundColor: colors.white },
   presetText: { fontSize: 12, fontWeight: '700', color: colors.ink },
+  calendarBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   quickRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -775,7 +833,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     paddingHorizontal: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
     color: colors.text,

@@ -302,6 +302,9 @@ export const api = {
   createList(body: { name: string; color: string }) {
     return request<TaskListItem>('/lists', { method: 'POST', body: JSON.stringify(body) });
   },
+  updateList(id: string, body: { name?: string; color?: string }) {
+    return request<TaskListItem>(`/lists/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
   deleteList(id: string) {
     return request<{ ok: boolean }>(`/lists/${id}`, { method: 'DELETE' });
   },

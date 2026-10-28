@@ -1,16 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
 import type { Task } from '@/api/client';
 import { DoneMark, DoneTitle } from '@/components/done-mark';
-import { formatLongDate, formatTime, isOverdue } from '@/lib/dates';
+import { formatLongDate, formatTime, isOverdue, todayISO } from '@/lib/dates';
 import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
 type TaskCardProps = {
   task: Task;
-  index: number;
   listColor?: string;
   listName?: string;
   onOpenList?: () => void;
@@ -24,13 +22,13 @@ type TaskCardProps = {
   onToggleStep?: (stepId: string) => void;
 };
 
-export function TaskCard({ task, index, listColor, listName, onOpenList, projectColor, projectName, onOpenProject, onPress, onToggle, onFavorite, onImportant, onToggleStep }: TaskCardProps) {
+export function TaskCard({ task, listColor, listName, onOpenList, projectColor, projectName, onOpenProject, onPress, onToggle, onFavorite, onImportant, onToggleStep }: TaskCardProps) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
   const steps = task.steps ?? [];
   const doneSteps = steps.filter((step) => step.done).length;
+  const today = todayISO();
   return (
-    <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 30).duration(240)}>
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [
@@ -74,7 +72,7 @@ export function TaskCard({ task, index, listColor, listName, onOpenList, project
                 </Text>
               </Pressable>
             ) : null}
-            {task.dueDate ? <Text style={styles.due}>до {formatLongDate(task.dueDate)}</Text> : null}
+            {task.dueDate ? <Text style={styles.due}>до {task.dueDate === today ? 'сегодня' : formatLongDate(task.dueDate)}</Text> : null}
             {task.time ? <Text style={[styles.metaText, { color: theme.primaryPressed }]}>{task.time}</Text> : null}
             {task.remindAt ? (
               <View style={styles.reminder}>
@@ -108,7 +106,6 @@ export function TaskCard({ task, index, listColor, listName, onOpenList, project
           ) : null}
         </View>
       </Pressable>
-    </Animated.View>
   );
 }
 

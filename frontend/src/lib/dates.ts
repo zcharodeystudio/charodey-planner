@@ -84,6 +84,10 @@ export function formatLongDate(value: string) {
   return `${date.getDate()} ${MONTHS_GENITIVE[date.getMonth()]}`;
 }
 
+export function formatDayLabel(value: string, today = todayISO()) {
+  return value === today ? 'Сегодня' : formatLongDate(value);
+}
+
 export function formatMonthTitle(year: number, month: number) {
   return `${MONTHS[month]} ${year}`;
 }

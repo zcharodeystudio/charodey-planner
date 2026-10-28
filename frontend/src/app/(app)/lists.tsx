@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type TaskListItem } from '@/api/client';
 import { BackButton } from '@/components/back-button';
 import { ConfirmModal } from '@/components/confirm-modal';
+import { PaletteButton } from '@/components/color-wheel';
 import { NameColorForm } from '@/components/name-color-form';
 import { PageSkeleton } from '@/components/ui/skeleton';
 import { Screen } from '@/components/ui/screen';
@@ -26,7 +27,9 @@ export default function ListsScreen() {
   const [name, setName] = useState('');
   const [color, setColor] = useState('#E8B423');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteListId, setPaletteListId] = useState<string | null>(null);
   const [listToDelete, setListToDelete] = useState<TaskListItem | null>(null);
+  const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     void api
@@ -53,11 +56,27 @@ export default function ListsScreen() {
       setPaletteOpen(false);
       return true;
     }
+    if (paletteListId) {
+      setPaletteListId(null);
+      return true;
+    }
     if (!creating) return false;
     closeForm();
     return true;
-  }, [creating, listToDelete, paletteOpen]);
+  }, [creating, listToDelete, paletteListId, paletteOpen]);
   useAndroidBack(onHardwareBack);
+
+  useEffect(() => () => {
+    if (colorTimer.current) clearTimeout(colorTimer.current);
+  }, []);
+
+  const paintList = (id: string, nextColor: string) => {
+    setLists((current) => current.map((item) => (item.id === id ? { ...item, color: nextColor } : item)));
+    if (colorTimer.current) clearTimeout(colorTimer.current);
+    colorTimer.current = setTimeout(() => {
+      void api.updateList(id, { color: nextColor }).catch((error) => showToast(getErrorMessage(error)));
+    }, 280);
+  };
 
   const openList = (id: string) => {
     planner.apply({ scope: 'all', listId: id });
@@ -103,6 +122,14 @@ export default function ListsScreen() {
             <Pressable style={styles.main} onPress={() => openList(list.id)}>
               <View style={[styles.dot, { backgroundColor: list.color }]} />
               <Text style={styles.title}>{list.name}</Text>
+            </Pressable>
+            <PaletteButton
+              color={list.color}
+              open={paletteListId === list.id}
+              onOpenChange={(open) => setPaletteListId(open ? list.id : null)}
+              onColor={(nextColor) => paintList(list.id, nextColor)}
+            />
+            <Pressable accessibilityRole="button" accessibilityLabel="Перейти к списку" hitSlop={8} onPress={() => openList(list.id)}>
               <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
             </Pressable>
             <Pressable accessibilityLabel="Удалить список" hitSlop={8} onPress={() => setListToDelete(list)}>
