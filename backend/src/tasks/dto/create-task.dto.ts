@@ -1,4 +1,4 @@
-import { NOTE_MAX, TITLE_MAX } from '@charodey/validation';
+import { FILE_COUNT_MAX, FILE_DATA_MAX, NOTE_MAX, STEP_MAX, TITLE_MAX } from '@charodey/validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -29,7 +29,7 @@ export class TaskStepDto {
 
   @IsString()
   @MinLength(1)
-  @MaxLength(120)
+  @MaxLength(STEP_MAX)
   title: string;
 
   @IsBoolean()
@@ -46,7 +46,7 @@ export class TaskFileDto {
   mimeType: string;
 
   @IsString()
-  @MaxLength(1_200_000)
+  @MaxLength(FILE_DATA_MAX)
   data: string;
 }
 
@@ -129,14 +129,14 @@ export class CreateTaskDto {
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(30)
   @ValidateNested({ each: true })
   @Type(() => TaskStepDto)
   steps?: TaskStepDto[];
 
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(3)
+  @ArrayMaxSize(FILE_COUNT_MAX)
   @ValidateNested({ each: true })
   @Type(() => TaskFileDto)
   files?: TaskFileDto[];

@@ -1,49 +1,84 @@
 import { Href, router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, type Task } from '@/api/client';
+import { peekTasksCache, readTasksCache, sameTasks, writeTasksCache } from '@/lib/planner-cache';
+import { useAuth } from '@/store/auth-context';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TaskCard } from '@/components/task-card';
-import { BackButton } from '@/components/back-button';
+import { BackButton, goBack } from '@/components/back-button';
+import { useAndroidBack } from '@/lib/android-back';
 import { Screen } from '@/components/ui/screen';
 import { useTheme } from '@/store/theme-context';
 import { getErrorMessage } from '@/lib/errors';
 import { completeTask, skipOccurrence } from '@/lib/recurrence';
 import { cancelTaskReminder, syncTaskReminder } from '@/lib/notifications';
-import { TaskCardSkeleton } from '@/components/ui/skeleton';
 import { showToast } from '@/lib/toast';
 import { colors, spacing } from '@/theme/theme';
 
 export default function FavoritesScreen() {
   const theme = useTheme();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const stored = user?.id ? peekTasksCache(user.id, 'favorites') : null;
+  const [tasks, setTasks] = useState<Task[]>(() => stored?.tasks ?? []);
+  const [loading, setLoading] = useState(!stored);
+  const localRev = useRef(0);
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
+  const keep = (next: Task[]) => {
+    setTasks((current) => (sameTasks(current, next) ? current : next));
+  };
 
   const load = useCallback(async () => {
+    const revision = localRev.current;
+    let showed = tasksRef.current.length > 0;
+    if (user?.id) {
+      const cached = peekTasksCache(user.id, 'favorites') ?? (await readTasksCache(user.id, 'favorites'));
+      if (localRev.current !== revision) return;
+      if (cached) {
+        showed = true;
+        keep(cached.tasks);
+        setLoading(false);
+      }
+    }
     try {
-      const next = await api.favorites();
-      setTasks(next.map((task) => ({ ...task, favorite: true, position: task.position ?? 0 })));
+      const next = (await api.favorites()).map((task) => ({ ...task, favorite: true, position: task.position ?? 0 }));
+      if (localRev.current !== revision) return;
+      keep(next);
+      if (user?.id && localRev.current === revision) void writeTasksCache(user.id, 'favorites', next, []);
     } catch (error) {
-      showToast(getErrorMessage(error));
+      if (!showed) showToast(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
       void load();
     }, [load]),
   );
+  useAndroidBack(() => {
+    goBack('/(app)/(tabs)/today');
+    return true;
+  });
+
+  const publish = (update: (current: Task[]) => Task[]) => {
+    localRev.current += 1;
+    const next = update(tasksRef.current);
+    tasksRef.current = next;
+    setTasks(next);
+    if (user?.id) writeTasksCache(user.id, 'favorites', next, []);
+  };
 
   const toggle = async (task: Task) => {
     const next = !task.done;
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, done: next } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, done: next } : item)));
     try {
       if (next && task.repeat && task.repeat !== 'none') {
         const result = await completeTask(task);
-        setTasks((current) => {
+        publish((current) => {
           const replaced = current.map((item) => (item.id === result.done.id ? result.done : item));
           return result.spawned ? [result.spawned, ...replaced] : replaced;
         });
@@ -52,59 +87,56 @@ export default function FavoritesScreen() {
       const saved = await api.updateTask(task.id, { done: next });
       await syncTaskReminder(saved);
     } catch (error) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(error));
     }
   };
 
   const toggleStep = async (task: Task, stepId: string) => {
     const steps = (task.steps ?? []).map((step) => (step.id === stepId ? { ...step, done: !step.done } : step));
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, steps } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, steps } : item)));
     try {
       await api.updateTask(task.id, { steps });
     } catch (error) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(error));
     }
   };
 
   const toggleImportant = async (task: Task) => {
     const next = !task.important;
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, important: next } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, important: next } : item)));
     try {
       await api.updateTask(task.id, { important: next });
     } catch (error) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(error));
     }
   };
 
   const unfavorite = async (task: Task) => {
-    setTasks((current) => current.filter((item) => item.id !== task.id));
+    publish((current) => current.filter((item) => item.id !== task.id));
     try {
       await api.updateTask(task.id, { favorite: false });
     } catch (error) {
-      setTasks((current) => [task, ...current]);
+      publish((current) => [task, ...current]);
       showToast(getErrorMessage(error));
     }
   };
 
   const remove = async (task: Task) => {
-    setBusyId(task.id);
     try {
       const skipped = await skipOccurrence(task);
       if (skipped) {
-        setTasks((current) => current.map((item) => (item.id === task.id ? skipped : item)));
+        publish((current) => current.map((item) => (item.id === task.id ? skipped : item)));
         showToast('Этот день пропущен');
         return;
       }
+      publish((current) => current.filter((item) => item.id !== task.id));
       await api.deleteTask(task.id);
       await cancelTaskReminder(task.id);
-      setTasks((current) => current.filter((item) => item.id !== task.id));
     } catch (error) {
       showToast(getErrorMessage(error));
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -114,7 +146,7 @@ export default function FavoritesScreen() {
         <BackButton label="Назад" fallback="/(app)/(tabs)/today" />
       </View>
       <Text style={styles.heading}>Избранное</Text>
-      {loading ? (
+      {loading && tasks.length === 0 ? (
         <ActivityIndicator color={theme.primary} style={styles.loader} />
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
@@ -126,7 +158,6 @@ export default function FavoritesScreen() {
           ) : null}
           {tasks.map((task) => (
             <SwipeToDelete key={task.id} onDelete={() => void remove(task)}>
-              {busyId === task.id ? <TaskCardSkeleton /> : (
               <TaskCard
                 task={task}
                 onPress={() => router.push(`/(app)/task/${task.id}` as Href)}
@@ -135,7 +166,6 @@ export default function FavoritesScreen() {
                 onImportant={() => void toggleImportant(task)}
                 onToggleStep={(stepId) => void toggleStep(task, stepId)}
               />
-              )}
             </SwipeToDelete>
           ))}
         </ScrollView>

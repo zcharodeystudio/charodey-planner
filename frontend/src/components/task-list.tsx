@@ -4,34 +4,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { occursOn } from '@charodey/validation';
-import { api, type ProjectItem, type Task, type TaskListItem } from '@/api/client';
+import { api, type Task, type TaskListItem } from '@/api/client';
 import { SwipeToDelete } from '@/components/swipe-to-delete';
 import { TaskCard } from '@/components/task-card';
-import { TaskCardSkeleton } from '@/components/ui/skeleton';
 import { WhenSheet } from '@/components/when-sheet';
 import { datePresets, formatDayLabel, isOverdue, rangeBounds, todayISO, type ViewRange } from '@/lib/dates';
 import { completeTask, skipOccurrence } from '@/lib/recurrence';
-import { clearTaskRefreshing, useTaskRefresh } from '@/lib/task-refresh';
 import { getErrorMessage } from '@/lib/errors';
 import { cancelTaskReminder, syncTaskReminder } from '@/lib/notifications';
+import { peekTasksCache, readTasksCache, sameLists, sameTasks, setActiveTaskView, subscribePlannerCache, writeTasksCache } from '@/lib/planner-cache';
 import { showToast } from '@/lib/toast';
+import { useAuth } from '@/store/auth-context';
 import { usePlanner, SORTS, type SortMode, type TaskScope } from '@/store/planner-context';
 import { useTheme } from '@/store/theme-context';
 import { colors, radii, spacing } from '@/theme/theme';
 
-function projectOf(projects: ProjectItem[], boardId: string | null) {
-  if (!boardId) return null;
-  return projects.find((project) => project.boards?.some((board) => board.id === boardId)) ?? null;
-}
-
-function taskBadges(task: Task, lists: TaskListItem[], projects: ProjectItem[], showList: boolean) {
+function taskBadges(task: Task, lists: TaskListItem[], showList: boolean) {
   const list = lists.find((item) => item.id === task.listId);
-  const project = projectOf(projects, task.boardId);
   return {
     listColor: list?.color,
     listName: showList ? list?.name : undefined,
-    projectColor: project?.color,
-    projectName: project?.name,
   };
 }
 
@@ -55,12 +47,15 @@ function normalize(task: Task): Task {
 
 export function TaskList({ date, tools = false }: { date: string; tools?: boolean }) {
   const theme = useTheme();
-  const refreshState = useTaskRefresh();
+  const { user } = useAuth();
   const planner = usePlanner();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [lists, setLists] = useState<TaskListItem[]>([]);
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const bounds = tools ? rangeBounds(date, planner.range, planner.rangeFrom, planner.rangeTo) : { from: date, to: date };
+  const viewKey = `${tools ? planner.scope : 'day'}:${tools ? planner.range : 'day'}:${bounds.from}:${bounds.to}:${date}`;
+  const opened = user?.id ? peekTasksCache(user.id, viewKey) : null;
+  const [tasks, setTasks] = useState<Task[]>(() => (opened ? opened.tasks.map(normalize) : []));
+  const [lists, setLists] = useState<TaskListItem[]>(() => opened?.lists ?? []);
+  const [loading, setLoading] = useState(!opened);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quick, setQuick] = useState(false);
@@ -69,7 +64,6 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   const [quickTime, setQuickTime] = useState<string | null>(null);
   const [whenOpen, setWhenOpen] = useState(false);
   const [lift, setLift] = useState(0);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [swipeKey, setSwipeKey] = useState(0);
   const [savingQuick, setSavingQuick] = useState(false);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() => new Set());
@@ -91,19 +85,57 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   const dockRef = useRef<View>(null);
   const liftRef = useRef(0);
 
-  const bounds = tools ? rangeBounds(date, planner.range, planner.rangeFrom, planner.rangeTo) : { from: date, to: date };
+  const localRev = useRef(0);
+  const tasksRef = useRef(tasks);
+  const listsRef = useRef(lists);
+  const shownView = useRef(viewKey);
+  tasksRef.current = tasks;
+  listsRef.current = lists;
+  if (shownView.current !== viewKey) {
+    shownView.current = viewKey;
+    const next = user?.id ? peekTasksCache(user.id, viewKey) : null;
+    setTasks(next ? next.tasks.map(normalize) : []);
+    setLists(next?.lists ?? []);
+    setLoading(!next);
+  }
+
+  const keep = (nextTasks: Task[], nextLists: TaskListItem[]) => {
+    setTasks((current) => (sameTasks(current, nextTasks) ? current : nextTasks));
+    setLists((current) => (sameLists(current, nextLists) ? current : nextLists));
+  };
+
+  const publish = (update: (current: Task[]) => Task[]) => {
+    localRev.current += 1;
+    const next = update(tasksRef.current);
+    tasksRef.current = next;
+    setTasks(next);
+    if (user?.id) writeTasksCache(user.id, viewKey, next, listsRef.current);
+    return next;
+  };
 
   const load = useCallback(
     async (mode: 'initial' | 'refresh' = 'initial') => {
       const token = ++loadGen.current;
+      const revision = localRev.current;
+      const userId = user?.id ?? '';
+      let showedCache = tasksRef.current.length > 0;
+      if (userId && mode !== 'refresh') {
+        const cached = peekTasksCache(userId, viewKey) ?? (await readTasksCache(userId, viewKey));
+        if (token !== loadGen.current || localRev.current !== revision) return;
+        if (cached) {
+          showedCache = true;
+          keep(cached.tasks.map(normalize), cached.lists);
+          setLoading(false);
+        }
+      }
       if (mode === 'refresh') setRefreshing(true);
-      else setLoading(true);
+      else if (!showedCache) setLoading(true);
       try {
         const today = todayISO();
         const yearAgo = shiftYear(today);
         const fetchFrom = tools && planner.scope === 'overdue' && bounds.from > yearAgo ? yearAgo : bounds.from;
         const fetchTo = tools && planner.scope === 'overdue' ? today : bounds.to;
-        const [nextTasks, nextLists, nextProjects] = await Promise.all([
+        const [nextTasks, nextLists] = await Promise.all([
           tools && planner.scope === 'favorites'
             ? api.favorites()
             : tools && planner.scope === 'untimed'
@@ -114,25 +146,38 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
                   ? api.taskRange(fetchFrom, fetchTo)
                   : api.listTasks(date),
           api.lists().catch(() => [] as TaskListItem[]),
-          api.projects().catch(() => [] as ProjectItem[]),
         ]);
-        if (token !== loadGen.current) return;
-        setTasks(nextTasks.map(normalize));
-        setLists(nextLists);
-        setProjects(nextProjects);
+        if (token !== loadGen.current || localRev.current !== revision) return;
+        const normalized = nextTasks.map(normalize);
+        if (localRev.current !== revision) return;
+        keep(normalized, nextLists);
+        if (userId && localRev.current === revision) writeTasksCache(userId, viewKey, normalized, nextLists);
         setError(null);
-        clearTaskRefreshing();
       } catch (err) {
         if (token !== loadGen.current) return;
-        setError(getErrorMessage(err));
+        if (!showedCache) setError(getErrorMessage(err));
       } finally {
         if (token !== loadGen.current) return;
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [bounds.from, bounds.to, date, planner.range, planner.scope, planner.sort, tools],
+    [bounds.from, bounds.to, date, planner.range, planner.scope, tools, user?.id, viewKey],
   );
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const userId = user.id;
+    setActiveTaskView(userId, viewKey);
+    const unsubscribe = subscribePlannerCache(() => {
+      const cached = peekTasksCache(userId, viewKey);
+      if (!cached) return;
+      keep(cached.tasks.map(normalize), cached.lists);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.id, viewKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -196,6 +241,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
       });
     };
     const show = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardOpen(true);
       if (Platform.OS === 'android') return;
       const keyboardTop = event.endCoordinates.screenY;
       placeAboveKeyboard(keyboardTop);
@@ -204,6 +250,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
     });
     const hide = Keyboard.addListener(hideEvent, () => {
       clearTimeout(placeTimer);
+      setKeyboardOpen(false);
       liftRef.current = 0;
       setLift(0);
       clearTimeout(placeTimer);
@@ -227,13 +274,13 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
 
   const toggle = async (task: Task) => {
     const next = !task.done;
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, done: next } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, done: next } : item)));
     try {
       if (next && task.repeat && task.repeat !== 'none') {
         const result = await completeTask(task);
         const done = normalize(result.done);
         const spawned = result.spawned ? normalize(result.spawned) : null;
-        setTasks((current) => {
+        publish((current) => {
           const replaced = current.map((item) => (item.id === done.id ? done : item));
           return spawned ? [...replaced, spawned] : replaced;
         });
@@ -242,38 +289,37 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
       }
       const saved = normalize(await api.updateTask(task.id, { done: next }));
       await syncTaskReminder(saved);
-      setTasks((current) => current.map((item) => (item.id === saved.id ? saved : item)));
     } catch (err) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(err));
     }
   };
 
   const toggleStep = async (task: Task, stepId: string) => {
     const steps = (task.steps ?? []).map((step) => (step.id === stepId ? { ...step, done: !step.done } : step));
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, steps } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, steps } : item)));
     try {
       await api.updateTask(task.id, { steps });
     } catch (err) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(err));
     }
   };
 
   const toggleImportant = async (task: Task) => {
     const next = !task.important;
-    setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, important: next } : item)));
+    publish((current) => current.map((item) => (item.id === task.id ? { ...item, important: next } : item)));
     try {
       await api.updateTask(task.id, { important: next });
     } catch (err) {
-      setTasks((current) => current.map((item) => (item.id === task.id ? task : item)));
+      publish((current) => current.map((item) => (item.id === task.id ? task : item)));
       showToast(getErrorMessage(err));
     }
   };
 
   const favorite = async (task: Task) => {
     const next = !task.favorite;
-    setTasks((current) =>
+    publish((current) =>
       !next && planner.scope === 'favorites'
         ? current.filter((item) => item.id !== task.id)
         : current.map((item) => (item.id === task.id ? { ...item, favorite: next } : item)),
@@ -282,7 +328,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
       await api.updateTask(task.id, { favorite: next });
       showToast(next ? 'В избранном' : 'Убрано из избранного');
     } catch (err) {
-      setTasks((current) => (current.some((item) => item.id === task.id) ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current]));
+      publish((current) => (current.some((item) => item.id === task.id) ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current]));
       showToast(getErrorMessage(err));
     }
   };
@@ -294,7 +340,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
         ? { ...task, position: base + index, date: moved.date, repeat: 'none' as const, repeatDays: [] as number[] }
         : { ...task, position: base + index },
     );
-    setTasks((current) => current.map((task) => positioned.find((item) => item.id === task.id) ?? task));
+    publish((current) => current.map((task) => positioned.find((item) => item.id === task.id) ?? task));
     if (day !== 'undated') {
       const manualDays = [day, ...planner.manualDays.filter((item) => item !== day)].slice(0, 80);
       planner.apply({ manualDays });
@@ -336,7 +382,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
           ...(planner.newOnTop ? { position: -Date.now() } : {}),
         }),
       );
-      setTasks((current) => [...current, created]);
+      publish((current) => [...current, created]);
       setDraft('');
       setQuick(false);
       showToast('Задача добавлена');
@@ -349,23 +395,20 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
   };
 
   const remove = async (task: Task) => {
-    setBusyId(task.id);
     try {
       const skipped = await skipOccurrence(task);
       if (skipped) {
-        setTasks((current) => current.map((item) => (item.id === task.id ? normalize(skipped) : item)));
+        publish((current) => current.map((item) => (item.id === task.id ? normalize(skipped) : item)));
         showToast('Этот день пропущен');
         return;
       }
+      publish((current) => current.filter((item) => item.id !== task.id));
       await api.deleteTask(task.id);
       await cancelTaskReminder(task.id);
-      setTasks((current) => current.filter((item) => item.id !== task.id));
       showToast('Задача удалена');
     } catch (err) {
       setSwipeKey((value) => value + 1);
       showToast(getErrorMessage(err));
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -469,7 +512,6 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
               </Text>
             </View>
           ) : null}
-          {refreshState.pendingNew ? <TaskCardSkeleton /> : null}
           {shownRows.map((row) => (
               <View
                 key={row.key}
@@ -499,28 +541,21 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
                 ) : (
                   <SwipeToDelete
                     key={`${row.task.id}-${swipeKey}`}
-                    draggable={tools && busyId !== row.task.id}
+                    draggable={tools}
                     onDelete={() => void remove(row.task)}
                     onDragStart={(absoluteY) => onDragStart(row.task, row.day, absoluteY)}
                     onDragMove={onDragMove}
                     onDragEnd={onDragEnd}
                   >
                     <View style={drag?.task.id === row.task.id ? styles.lifted : undefined}>
-                      {busyId === row.task.id || refreshState.ids.includes(row.task.id) ? (
-                        <TaskCardSkeleton />
-                      ) : (
                       <TaskCard
                         task={row.task}
-                        {...taskBadges(row.task, lists, projects, !planner.listId)}
+                        {...taskBadges(row.task, lists, !planner.listId)}
                         onOpenList={
                           row.task.listId
                             ? () => planner.apply({ scope: 'all', listId: row.task.listId })
                             : undefined
                         }
-                        onOpenProject={() => {
-                          const project = projectOf(projects, row.task.boardId);
-                          if (project) router.push(`/(app)/project/${project.id}` as Href);
-                        }}
                         onPress={() => {
                           if (suppressPress.current) return;
                           router.push(`/(app)/task/${row.task.id}` as Href);
@@ -530,7 +565,6 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
                         onImportant={() => void toggleImportant(row.task)}
                         onToggleStep={(stepId) => void toggleStep(row.task, stepId)}
                       />
-                      )}
                     </View>
                   </SwipeToDelete>
                 )}
@@ -546,7 +580,7 @@ export function TaskList({ date, tools = false }: { date: string; tools?: boolea
           </Text>
         </View>
       ) : null}
-      <View ref={dockRef} style={[styles.quickDock, { bottom: spacing.md + lift }]}>
+      <View ref={dockRef} style={[styles.quickDock, { bottom: spacing.md + lift + (keyboardOpen ? 10 : 0) }]}>
         <View style={quick ? styles.quickCard : undefined}>
           {quick && !(tools && planner.scope === 'untimed') ? (
             <View style={styles.presets}>

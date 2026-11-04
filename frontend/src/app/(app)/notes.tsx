@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type NoteItem } from '@/api/client';
-import { BackButton } from '@/components/back-button';
+import { peekNotesCache, readNotesCache, writeNotesCache } from '@/lib/planner-cache';
+import { useAuth } from '@/store/auth-context';
+import { BackButton, goBack } from '@/components/back-button';
+import { useAndroidBack } from '@/lib/android-back';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { PageSkeleton } from '@/components/ui/skeleton';
 import { Screen } from '@/components/ui/screen';
@@ -17,20 +20,60 @@ import { colors, radii, spacing } from '@/theme/theme';
 export default function NotesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [notes, setNotes] = useState<NoteItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const storedNotes = user?.id ? peekNotesCache(user.id) : null;
+  const [notes, setNotes] = useState<NoteItem[]>(() => storedNotes ?? []);
+  const [loading, setLoading] = useState(storedNotes === null);
+  const localRev = useRef(0);
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
   const [creating, setCreating] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteItem | null>(null);
 
+  const sameNotes = (left: NoteItem[], right: NoteItem[]) =>
+    JSON.stringify(left.map((note) => ({ id: note.id, title: note.title, body: note.body, color: note.color, pinned: note.pinned, updatedAt: note.updatedAt }))) ===
+    JSON.stringify(right.map((note) => ({ id: note.id, title: note.title, body: note.body, color: note.color, pinned: note.pinned, updatedAt: note.updatedAt })));
+
+  const keepNotes = (next: NoteItem[]) => {
+    setNotes((current) => (sameNotes(current, next) ? current : next));
+  };
+
   const load = useCallback(() => {
-    void api
-      .notes()
-      .then(setNotes)
-      .catch((error) => showToast(getErrorMessage(error)))
-      .finally(() => setLoading(false));
-  }, []);
+    const userId = user?.id ?? '';
+    const revision = localRev.current;
+    void (async () => {
+      let showed = notesRef.current.length > 0;
+      if (userId) {
+        const cached = peekNotesCache(userId) ?? (await readNotesCache(userId));
+        if (localRev.current !== revision) return;
+        if (cached) {
+          showed = true;
+          keepNotes(cached);
+          setLoading(false);
+        }
+      }
+      try {
+        const next = await api.notes();
+        if (localRev.current !== revision) return;
+        keepNotes(next);
+        if (userId) void writeNotesCache(userId, next);
+      } catch (error) {
+        if (!showed) showToast(getErrorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user?.id]);
 
   useFocusEffect(load);
+  useAndroidBack(() => {
+    if (noteToDelete) {
+      setNoteToDelete(null);
+      return true;
+    }
+    goBack('/(app)/(tabs)/profile');
+    return true;
+  });
 
   const create = async () => {
     if (creating) return;
@@ -47,11 +90,13 @@ export default function NotesScreen() {
 
   const togglePin = async (note: NoteItem) => {
     const pinned = !note.pinned;
-    setNotes((current) =>
-      current
-        .map((item) => (item.id === note.id ? { ...item, pinned } : item))
-        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)),
-    );
+    localRev.current += 1;
+    const next = notesRef.current
+      .map((item) => (item.id === note.id ? { ...item, pinned } : item))
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt));
+    notesRef.current = next;
+    setNotes(next);
+    if (user?.id) void writeNotesCache(user.id, next);
     try {
       await api.updateNote(note.id, { pinned });
     } catch (error) {
@@ -112,13 +157,18 @@ export default function NotesScreen() {
           const id = noteToDelete?.id;
           setNoteToDelete(null);
           if (!id) return;
+          localRev.current += 1;
+          const next = notesRef.current.filter((item) => item.id !== id);
+          notesRef.current = next;
+          setNotes(next);
+          if (user?.id) void writeNotesCache(user.id, next);
           void api
             .deleteNote(id)
-            .then(() => {
-              setNotes((current) => current.filter((item) => item.id !== id));
-              showToast('Заметка удалена');
-            })
-            .catch((error) => showToast(getErrorMessage(error)));
+            .then(() => showToast('Заметка удалена'))
+            .catch((error) => {
+              showToast(getErrorMessage(error));
+              load();
+            });
         }}
       />
     </Screen>

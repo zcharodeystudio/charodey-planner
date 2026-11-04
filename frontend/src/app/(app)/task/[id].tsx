@@ -1,21 +1,20 @@
-import { taskInputSchema, type RepeatMode, type RepeatUnit } from '@charodey/validation';
+import { FILE_COUNT_MAX, NOTE_MAX, STEP_MAX, TITLE_MAX, taskInputSchema, type RepeatMode, type RepeatUnit } from '@charodey/validation';
 import { Ionicons } from '@expo/vector-icons';
 import { Href, router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api, type ProjectItem, type TaskFile, type TaskListItem, type TaskStep } from '@/api/client';
+import { api, type TaskFile, type TaskListItem, type TaskStep } from '@/api/client';
 import { ErrorBanner } from '@/components/ui/error-banner';
-import { Input } from '@/components/ui/input';
 import { WhenSheet } from '@/components/when-sheet';
 import { PageSkeleton } from '@/components/ui/skeleton';
 import { Screen } from '@/components/ui/screen';
-import { markNewTaskRefreshing, markTaskRefreshing } from '@/lib/task-refresh';
+import { adoptSavedTask } from '@/lib/planner-cache';
 import { WEEKDAYS, formatLongDate, remindAtFromParts, todayISO } from '@/lib/dates';
 import { useAndroidBack } from '@/lib/android-back';
 import { getErrorMessage } from '@/lib/errors';
-import { pickAttachment, pickFromCamera } from '@/lib/files';
+import { openAttachment, pickAttachment, pickFromCamera, pickFromGallery } from '@/lib/files';
 import { cancelTaskReminder, syncTaskReminder } from '@/lib/notifications';
 import { showToast } from '@/lib/toast';
 import { usePlanner } from '@/store/planner-context';
@@ -91,15 +90,13 @@ export default function TaskScreen() {
   const [stepOpen, setStepOpen] = useState(false);
   const [files, setFiles] = useState<TaskFile[]>([]);
   const [lists, setLists] = useState<TaskListItem[]>([]);
+  const [titleHeight, setTitleHeight] = useState(52);
+  const [previewFile, setPreviewFile] = useState<TaskFile | null>(null);
   const [listId, setListId] = useState<string | null>(typeof params.listId === 'string' ? params.listId : null);
   const [listOpen, setListOpen] = useState(false);
   const [listPulse, setListPulse] = useState(0);
   const [boardId, setBoardId] = useState<string | null>(typeof params.boardId === 'string' ? params.boardId : null);
   const [statusId, setStatusId] = useState<string | null>(typeof params.statusId === 'string' ? params.statusId : null);
-  const [projects, setProjects] = useState<ProjectItem[]>([]);
-  const [boardOpen, setBoardOpen] = useState(false);
-  const [boardPulse, setBoardPulse] = useState(0);
-  const [statusOpen, setStatusOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [titleError, setTitleError] = useState<string>();
   const [generalError, setGeneralError] = useState<string>();
@@ -117,12 +114,7 @@ export default function TaskScreen() {
 
   useEffect(() => {
     void api.lists().then(setLists).catch(() => undefined);
-    void api.projects().then(setProjects).catch(() => undefined);
   }, []);
-
-  const boards = projects.flatMap((item) => (item.boards ?? []).map((entry) => ({ ...entry, projectName: item.name, color: item.color })));
-  const selectedBoard = boards.find((item) => item.id === boardId) ?? null;
-  const columns = selectedBoard?.columns ?? [];
 
   const chooseList = (next: TaskListItem | null) => {
     setListOpen(false);
@@ -130,15 +122,6 @@ export default function TaskScreen() {
     setListId(next?.id ?? null);
     setListPulse((value) => value + 1);
     showToast(next ? `Добавлено в список «${next.name}»` : 'Убрано из списка');
-  };
-
-  const chooseBoard = (next: (typeof boards)[number] | null) => {
-    setBoardOpen(false);
-    if ((next?.id ?? null) === boardId) return;
-    setBoardId(next?.id ?? null);
-    setStatusId(next?.columns[0]?.id ?? null);
-    setBoardPulse((value) => value + 1);
-    showToast(next ? `Добавлено в доску «${next.name}»` : 'Убрано из доски');
   };
 
   useEffect(() => {
@@ -269,18 +252,17 @@ export default function TaskScreen() {
     setSaving(true);
     try {
       const saved = isNew ? await api.createTask(parsed.data) : await api.updateTask(id, parsed.data);
+      adoptSavedTask(saved);
       const reminderState = await syncTaskReminder(saved);
       showToast(reminderState === 'denied' ? 'Задача сохранена, но уведомления запрещены' : 'Задача сохранена');
       if (isNew) {
         const stayUntimed = planner.scope === 'untimed' && !saved.date;
         planner.apply({ scope: stayUntimed ? 'untimed' : 'all', listId: saved.listId });
         if (saved.date) setSelectedDate(saved.date);
-        markNewTaskRefreshing();
         skipSave.current = true;
         router.replace('/(app)/(tabs)/today' as Href);
         return;
       }
-      markTaskRefreshing(saved.id);
       leave(action);
     } catch (error) {
       setGeneralError(getErrorMessage(error));
@@ -299,6 +281,10 @@ export default function TaskScreen() {
       setRepeatOpen(false);
       return true;
     }
+    if (previewFile) {
+      setPreviewFile(null);
+      return true;
+    }
     if (stepOpen) {
       setStepOpen(false);
       setStepText('');
@@ -306,14 +292,6 @@ export default function TaskScreen() {
     }
     if (remindOpen) {
       setRemindOpen(false);
-      return true;
-    }
-    if (boardOpen) {
-      setBoardOpen(false);
-      return true;
-    }
-    if (statusOpen) {
-      setStatusOpen(false);
       return true;
     }
     if (listOpen) {
@@ -326,7 +304,7 @@ export default function TaskScreen() {
     }
     void closeRef.current();
     return true;
-  }, [boardOpen, dateOpen, fileOpen, listOpen, remindOpen, repeatOpen, statusOpen, stepOpen]);
+  }, [dateOpen, fileOpen, listOpen, previewFile, remindOpen, repeatOpen, stepOpen]);
   useAndroidBack(onHardwareBack);
 
   useEffect(() => {
@@ -398,7 +376,28 @@ export default function TaskScreen() {
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, spacing.md) + (isNew ? spacing.xl : 108) }]} keyboardShouldPersistTaps="handled">
         <Text style={styles.heading}>{isNew ? 'Новая задача' : 'Изменить задачу'}</Text>
-        <Input label="Название" value={title} onChangeText={(value) => { setTitle(value); setTitleError(undefined); }} placeholder="Например, позвонить маме" error={titleError} />
+        <View style={styles.block}>
+          <Text style={styles.label}>Название</Text>
+          <TextInput
+            value={title}
+            onChangeText={(value) => {
+              setTitle(value.slice(0, TITLE_MAX));
+              setTitleError(undefined);
+            }}
+            placeholder="Например, позвонить маме"
+            placeholderTextColor={colors.inkMuted}
+            multiline
+            scrollEnabled={titleHeight >= 100}
+            maxLength={TITLE_MAX}
+            textAlignVertical="top"
+            onContentSizeChange={(event) => {
+              const next = Math.min(100, Math.max(52, Math.ceil(event.nativeEvent.contentSize.height)));
+              setTitleHeight((current) => (current === next ? current : next));
+            }}
+            style={[styles.titleInput, { height: titleHeight }, titleError ? { borderColor: colors.error } : null]}
+          />
+          {titleError ? <Text style={{ color: colors.error, fontSize: 13 }}>{titleError}</Text> : null}
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={reminderOn ? 'Напомнить' : 'Дата напоминания'}
@@ -563,12 +562,13 @@ export default function TaskScreen() {
               <TextInput
                 autoFocus
                 value={stepText}
-                onChangeText={setStepText}
+                onChangeText={(value) => setStepText(value.slice(0, STEP_MAX))}
+                maxLength={STEP_MAX}
                 onSubmitEditing={(event) => addStep(event.nativeEvent.text)}
                 placeholder="Новый шаг"
                 placeholderTextColor={colors.textSecondary}
                 style={styles.stepInput}
-                returnKeyType="done"
+                returnKeyType="next"
                 blurOnSubmit={false}
               />
               <Pressable
@@ -612,66 +612,43 @@ export default function TaskScreen() {
             </Pressable>
           </View>
         </View>
-        <View style={styles.pickerRow}>
-          <Text style={styles.label}>Доска</Text>
-          <View style={styles.pickerValue}>
-            <PickValue pulse={boardPulse}>
-              {selectedBoard ? (
-                <View style={[styles.badge, { backgroundColor: selectedBoard.color }]}>
-                  <Text style={styles.badgeText} numberOfLines={1}>{selectedBoard.name}</Text>
-                </View>
-              ) : (
-                <Text style={styles.hint}>Без доски</Text>
-              )}
-            </PickValue>
-            <Pressable accessibilityRole="button" accessibilityLabel="Выбрать доску" onPress={() => setBoardOpen(true)} hitSlop={8}>
-              <Ionicons name="create-outline" size={20} color={theme.primary} />
-            </Pressable>
-          </View>
-        </View>
-        {boardId ? (
-          <View style={styles.pickerRow}>
-            <Text style={styles.label}>Статус</Text>
-            <View style={styles.pickerValue}>
-              <Text style={[styles.value, { color: theme.primary }]} numberOfLines={1}>
-                {columns.find((column) => column.id === statusId)?.name ?? 'Без статуса'}
-              </Text>
-              <Pressable accessibilityLabel="Сменить статус" onPress={() => setStatusOpen(true)} hitSlop={8}>
-                <Ionicons name="create-outline" size={20} color={theme.primary} />
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
         {noteOpen ? (
-          <View style={styles.noteRow}>
+          <View style={styles.noteBox}>
             <TextInput
               autoFocus={!note}
               value={note}
-              onChangeText={setNote}
+              onChangeText={(value) => setNote(value.slice(0, NOTE_MAX))}
               placeholder="Заметка"
               placeholderTextColor={colors.textSecondary}
               multiline
-              style={[styles.note, styles.noteField]}
+              maxLength={NOTE_MAX}
+              style={[styles.note, styles.noteField, { paddingRight: 42 }]}
             />
-            <Pressable accessibilityRole="button" accessibilityLabel="Отменить" onPress={() => setNoteOpen(false)} hitSlop={8}>
-              <Text style={[styles.stepText, { color: theme.primary, fontWeight: '700', flex: 0 }]}>Отменить</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Удалить заметку"
+              onPress={() => {
+                setNote('');
+                setNoteOpen(false);
+              }}
+              hitSlop={8}
+              style={styles.noteTrash}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
             </Pressable>
           </View>
         ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Заметка"
-          accessibilityState={{ disabled: noteOpen }}
-          disabled={noteOpen}
-          onPress={() => setNoteOpen(true)}
-          style={styles.stepAdd}
-        >
-          <Text style={[styles.stepText, { color: noteOpen ? colors.textSecondary : theme.primary, fontWeight: '700' }]}>+ Заметка</Text>
-        </Pressable>
-        {files.map((file) => (
-          <View key={file.name} style={styles.step}>
-            <Ionicons name="document-outline" size={18} color={colors.text} />
-            <Text style={styles.stepText} numberOfLines={1}>{file.name}</Text>
+        {noteOpen ? null : (
+          <Pressable accessibilityRole="button" accessibilityLabel="Заметка" onPress={() => setNoteOpen(true)} style={styles.stepAdd}>
+            <Text style={[styles.stepText, { color: theme.primary, fontWeight: '700' }]}>+ Заметка</Text>
+          </Pressable>
+        )}
+        {files.map((file, index) => (
+          <View key={`${file.name}-${index}`} style={styles.step}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Открыть ${file.name}`} onPress={() => (file.mimeType.startsWith('image/') && file.data ? setPreviewFile(file) : void openAttachment(file))} style={styles.fileOpen}>
+              <Ionicons name={file.mimeType.startsWith('image/') ? 'image-outline' : 'document-outline'} size={18} color={colors.text} />
+              <Text style={styles.stepText} numberOfLines={1}>{file.name}</Text>
+            </Pressable>
             <Pressable accessibilityLabel="Убрать файл" onPress={() => setFiles((current) => current.filter((item) => item !== file))}>
               <Ionicons name="close" size={18} color={colors.textSecondary} />
             </Pressable>
@@ -682,8 +659,8 @@ export default function TaskScreen() {
           accessibilityLabel="Файл"
           accessibilityState={{ expanded: fileOpen }}
           onPress={() => {
-            if (files.length >= 3) {
-              showToast('Можно прикрепить до 3 файлов');
+            if (files.length >= FILE_COUNT_MAX) {
+              showToast(`Можно прикрепить до ${FILE_COUNT_MAX} файлов`);
               return;
             }
             setFileOpen((open) => !open);
@@ -699,7 +676,7 @@ export default function TaskScreen() {
               onPress={() => {
                 setFileOpen(false);
                 void pickFromCamera().then((file) => {
-                  if (file) setFiles((current) => [...current, file].slice(0, 3));
+                  if (file) setFiles((current) => [...current, file].slice(0, FILE_COUNT_MAX));
                 });
               }}
               style={styles.fileChoice}
@@ -712,7 +689,7 @@ export default function TaskScreen() {
               onPress={() => {
                 setFileOpen(false);
                 void pickAttachment().then((file) => {
-                  if (file) setFiles((current) => [...current, file].slice(0, 3));
+                  if (file) setFiles((current) => [...current, file].slice(0, FILE_COUNT_MAX));
                 });
               }}
               style={styles.fileChoice}
@@ -720,53 +697,26 @@ export default function TaskScreen() {
               <Ionicons name="folder-open-outline" size={20} color={theme.primary} />
               <Text style={styles.stepText}>Файлы устройства</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setFileOpen(false);
+                void pickFromGallery().then((file) => {
+                  if (file) setFiles((current) => [...current, file].slice(0, FILE_COUNT_MAX));
+                });
+              }}
+              style={styles.fileChoice}
+            >
+              <Ionicons name="images-outline" size={20} color={theme.primary} />
+              <Text style={styles.stepText}>Галерея</Text>
+            </Pressable>
           </View>
         ) : null}
         <ErrorBanner message={generalError} />
       </ScrollView>
-      <Modal visible={boardOpen} transparent animationType="fade" onRequestClose={() => setBoardOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setBoardOpen(false)}>
-          <Pressable style={[styles.modalCard, { paddingBottom: insets.bottom + spacing.xl }]} onPress={() => undefined}>
-            <Text style={styles.label}>Доска</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Без доски" onPress={() => chooseBoard(null)} style={styles.listOption}>
-              <Text style={styles.stepText}>Без доски</Text>
-              {!selectedBoard ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
-            </Pressable>
-            <OptionScroller count={boards.length} kind="board">
-              {boards.map((item) => (
-                <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={item.name} onPress={() => chooseBoard(item)} style={styles.listOption}>
-                  <View style={styles.boardOption}>
-                    <View style={[styles.badge, { backgroundColor: item.color, alignSelf: 'flex-start' }]}>
-                      <Text style={styles.badgeText}>{item.name}</Text>
-                    </View>
-                    <Text style={styles.hint}>{item.projectName}</Text>
-                  </View>
-                  {boardId === item.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
-                </Pressable>
-              ))}
-            </OptionScroller>
-            {boards.length === 0 ? <Text style={styles.hint}>Досок пока нет. Создайте их в проекте.</Text> : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
-      <Modal visible={statusOpen} transparent animationType="fade" onRequestClose={() => setStatusOpen(false)}>
-        <Pressable style={styles.modalBackdrop} onPress={() => setStatusOpen(false)}>
-          <Pressable style={[styles.modalCard, { paddingBottom: insets.bottom + spacing.xl }]} onPress={() => undefined}>
-            <Text style={styles.label}>Статус</Text>
-            {columns.map((column) => (
-              <Pressable
-                key={column.id}
-                onPress={() => {
-                  setStatusId(column.id);
-                  setStatusOpen(false);
-                }}
-                style={styles.listOption}
-              >
-                <Text style={styles.stepText}>{column.name}</Text>
-                {statusId === column.id ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
-              </Pressable>
-            ))}
-          </Pressable>
+      <Modal visible={Boolean(previewFile)} transparent animationType="fade" onRequestClose={() => setPreviewFile(null)}>
+        <Pressable style={styles.previewBackdrop} onPress={() => setPreviewFile(null)}>
+          {previewFile ? <Image source={{ uri: previewFile.data }} style={styles.previewImage} resizeMode="contain" /> : null}
         </Pressable>
       </Modal>
       <Modal visible={listOpen} transparent animationType="fade" onRequestClose={() => setListOpen(false)}>
@@ -777,7 +727,7 @@ export default function TaskScreen() {
               <Text style={styles.stepText}>Без списка</Text>
               {listId === null ? <Ionicons name="checkmark" size={18} color={theme.primary} /> : null}
             </Pressable>
-            <OptionScroller count={lists.length} kind="list">
+            <OptionScroller count={lists.length}>
               {lists.map((list) => (
                 <Pressable
                   key={list.id}
@@ -855,10 +805,10 @@ export default function TaskScreen() {
   );
 }
 
-function OptionScroller({ count, kind, children }: { count: number; kind: 'list' | 'board'; children: ReactNode }) {
+function OptionScroller({ count, children }: { count: number; children: ReactNode }) {
   if (count <= 2) return <>{children}</>;
   return (
-    <ScrollView style={kind === 'board' ? styles.boardScroll : styles.listScroll} contentContainerStyle={styles.optionList} nestedScrollEnabled>
+    <ScrollView style={styles.listScroll} contentContainerStyle={styles.optionList} nestedScrollEnabled>
       {children}
     </ScrollView>
   );
@@ -924,6 +874,23 @@ const styles = StyleSheet.create({
   dropdownItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, paddingHorizontal: spacing.md },
   dropdownText: { fontSize: 15, fontWeight: '700', color: colors.text },
   dropdownHint: { fontSize: 13, color: colors.textSecondary, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  titleInput: {
+    minHeight: 52,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: colors.ink,
+    backgroundColor: colors.surface,
+  },
+  noteBox: { position: 'relative' },
+  noteTrash: { position: 'absolute', top: 10, right: 10 },
+  fileOpen: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  previewBackdrop: { flex: 1, backgroundColor: 'rgba(26, 8, 48, 0.86)', justifyContent: 'center', padding: spacing.lg },
+  previewImage: { width: '100%', height: '80%' },
   note: {
     minHeight: 88,
     textAlignVertical: 'top',
@@ -951,8 +918,6 @@ const styles = StyleSheet.create({
   listOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   optionList: { gap: spacing.sm },
   listScroll: { maxHeight: 44 * 2 + spacing.sm },
-  boardScroll: { maxHeight: 64 * 2 + spacing.sm },
-  boardOption: { flex: 1, gap: 2 },
   customRepeat: { gap: spacing.sm, paddingTop: spacing.xs },
   everyLabel: { fontSize: 14, fontWeight: '700', color: colors.text },
   everyRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.md },

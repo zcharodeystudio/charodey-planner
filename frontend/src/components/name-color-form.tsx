@@ -32,6 +32,7 @@ export function NameColorForm({
           onChangeText={onChangeText}
           onSubmitEditing={onSubmit}
           autoFocus
+          maxLength={40}
           placeholder={placeholder}
           placeholderTextColor={colors.inkMuted}
           style={[styles.input, styles.flex]}

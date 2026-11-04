@@ -3,8 +3,11 @@ import { z } from 'zod';
 export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 72;
 export const NAME_MAX = 60;
-export const TITLE_MAX = 120;
-export const NOTE_MAX = 1000;
+export const TITLE_MAX = 200;
+export const NOTE_MAX = 10_000;
+export const STEP_MAX = 300;
+export const FILE_DATA_MAX = 6_000_000;
+export const FILE_COUNT_MAX = 5;
 
 const emailSchema = z
   .string()
@@ -51,14 +54,14 @@ export type RepeatUnit = (typeof REPEAT_UNITS)[number];
 
 export const taskStepSchema = z.object({
   id: z.string().min(1).max(40),
-  title: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(STEP_MAX),
   done: z.boolean(),
 });
 
 export const taskFileSchema = z.object({
   name: z.string().trim().min(1).max(180),
   mimeType: z.string().trim().min(1).max(120),
-  data: z.string().max(1_200_000),
+  data: z.string().max(FILE_DATA_MAX),
 });
 
 const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Время в формате ЧЧ:ММ');
@@ -78,8 +81,8 @@ export const taskInputSchema = z.object({
   repeatDays: z.array(z.number().int().min(0).max(31)).max(31).optional(),
   repeatEvery: z.number().int().min(1).max(99).optional(),
   repeatUnit: z.enum(REPEAT_UNITS).optional(),
-  steps: z.array(taskStepSchema).max(20).optional(),
-  files: z.array(taskFileSchema).max(3).optional(),
+  steps: z.array(taskStepSchema).max(30).optional(),
+  files: z.array(taskFileSchema).max(FILE_COUNT_MAX).optional(),
   listId: z.union([z.string().min(1), z.null()]).optional(),
   dueDate: z.union([dateSchema, z.null()]).optional(),
   boardId: z.union([z.string().min(1), z.null()]).optional(),

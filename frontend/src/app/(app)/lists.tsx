@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, type TaskListItem } from '@/api/client';
-import { BackButton } from '@/components/back-button';
+import { peekListsCache, readListsCache, sameLists, writeListsCache } from '@/lib/planner-cache';
+import { useAuth } from '@/store/auth-context';
+import { BackButton, goBack } from '@/components/back-button';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { PaletteButton } from '@/components/color-wheel';
 import { NameColorForm } from '@/components/name-color-form';
@@ -21,8 +23,13 @@ export default function ListsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const planner = usePlanner();
-  const [lists, setLists] = useState<TaskListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const storedLists = user?.id ? peekListsCache(user.id) : null;
+  const [lists, setLists] = useState<TaskListItem[]>(() => storedLists ?? []);
+  const [loading, setLoading] = useState(storedLists === null);
+  const localRev = useRef(0);
+  const listsRef = useRef(lists);
+  listsRef.current = lists;
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState('#E8B423');
@@ -31,13 +38,36 @@ export default function ListsScreen() {
   const [listToDelete, setListToDelete] = useState<TaskListItem | null>(null);
   const colorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const keepLists = (next: TaskListItem[]) => {
+    setLists((current) => (sameLists(current, next) ? current : next));
+  };
+
   const load = useCallback(() => {
-    void api
-      .lists()
-      .then(setLists)
-      .catch((error) => showToast(getErrorMessage(error)))
-      .finally(() => setLoading(false));
-  }, []);
+    const userId = user?.id ?? '';
+    const revision = localRev.current;
+    void (async () => {
+      let showed = listsRef.current.length > 0;
+      if (userId) {
+        const cached = peekListsCache(userId) ?? (await readListsCache(userId));
+        if (localRev.current !== revision) return;
+        if (cached) {
+          showed = true;
+          keepLists(cached);
+          setLoading(false);
+        }
+      }
+      try {
+        const next = await api.lists();
+        if (localRev.current !== revision) return;
+        keepLists(next);
+        if (userId) void writeListsCache(userId, next);
+      } catch (error) {
+        if (!showed) showToast(getErrorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [user?.id]);
 
   useFocusEffect(load);
 
@@ -60,7 +90,10 @@ export default function ListsScreen() {
       setPaletteListId(null);
       return true;
     }
-    if (!creating) return false;
+    if (!creating) {
+      goBack('/(app)/(tabs)/profile');
+      return true;
+    }
     closeForm();
     return true;
   }, [creating, listToDelete, paletteListId, paletteOpen]);
@@ -71,7 +104,11 @@ export default function ListsScreen() {
   }, []);
 
   const paintList = (id: string, nextColor: string) => {
-    setLists((current) => current.map((item) => (item.id === id ? { ...item, color: nextColor } : item)));
+    localRev.current += 1;
+    const next = listsRef.current.map((item) => (item.id === id ? { ...item, color: nextColor } : item));
+    listsRef.current = next;
+    setLists(next);
+    if (user?.id) void writeListsCache(user.id, next);
     if (colorTimer.current) clearTimeout(colorTimer.current);
     colorTimer.current = setTimeout(() => {
       void api.updateList(id, { color: nextColor }).catch((error) => showToast(getErrorMessage(error)));
@@ -88,7 +125,11 @@ export default function ListsScreen() {
     if (!nextName) return;
     try {
       const created = await api.createList({ name: nextName, color });
-      setLists((current) => [...current, created]);
+      localRev.current += 1;
+      const next = [...listsRef.current, created];
+      listsRef.current = next;
+      setLists(next);
+      if (user?.id) void writeListsCache(user.id, next);
       closeForm();
       showToast('Список создан');
       openList(created.id);
@@ -100,7 +141,11 @@ export default function ListsScreen() {
   const removeList = async (id: string) => {
     try {
       await api.deleteList(id);
-      setLists((current) => current.filter((item) => item.id !== id));
+      localRev.current += 1;
+      const next = listsRef.current.filter((item) => item.id !== id);
+      listsRef.current = next;
+      setLists(next);
+      if (user?.id) void writeListsCache(user.id, next);
       if (planner.listId === id) planner.apply({ listId: null, scope: 'all' });
       showToast('Список удалён');
     } catch (error) {

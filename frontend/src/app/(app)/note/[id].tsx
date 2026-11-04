@@ -1,9 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { api, type NoteBlock } from '@/api/client';
+import { api, type NoteBlock, type NoteItem } from '@/api/client';
+import { RichNote } from '@/components/rich-note';
+import { readNotesCache, writeNotesCache } from '@/lib/planner-cache';
+import { useAuth } from '@/store/auth-context';
 import { goBack } from '@/components/back-button';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { PageSkeleton } from '@/components/ui/skeleton';
@@ -18,7 +21,6 @@ import { colors, radii, spacing } from '@/theme/theme';
 type Draft = { title: string; color: string; pinned: boolean; blocks: NoteBlock[] };
 
 const ADDITIONS: { type: NoteBlock['type']; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { type: 'text', label: 'Текст', icon: 'document-text-outline' },
   { type: 'heading', label: 'Заголовок', icon: 'text-outline' },
   { type: 'bullet', label: 'Маркированный список', icon: 'list' },
   { type: 'number', label: 'Нумерованный список', icon: 'list-outline' },
@@ -54,6 +56,7 @@ function hasContent(draft: Draft) {
 export default function NoteScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [confirm, setConfirm] = useState(false);
@@ -62,33 +65,69 @@ export default function NoteScreen() {
   const draftRef = useRef<Draft | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const leaving = useRef(false);
+  const edited = useRef(false);
+  const loadedId = useRef<string | null>(null);
+
+  const applyNote = (note: NoteItem, force: boolean) => {
+    if (!force) return;
+    const loaded = note.blocks?.length
+      ? note.blocks
+      : note.body.trim()
+        ? [{ id: 'body', type: 'text' as const, text: note.body, items: [], columns: [], rows: [] }]
+        : [];
+    const blocks = loaded.some((block) => block.type === 'text') ? loaded : [{ id: 'body', type: 'text' as const, text: '', items: [], columns: [], rows: [] }, ...loaded];
+    const next = { title: note.title, color: note.color, pinned: note.pinned, blocks };
+    const current = draftRef.current;
+    if (current && current.title === next.title && current.color === next.color && current.pinned === next.pinned && JSON.stringify(current.blocks) === JSON.stringify(next.blocks)) return;
+    draftRef.current = next;
+    setDraft(next);
+  };
 
   useEffect(() => {
     if (!id) return;
-    void api
-      .getNote(id)
-      .then((note) => {
-        const blocks = note.blocks?.length
-          ? note.blocks
-          : note.body.trim()
-            ? [{ id: 'body', type: 'text' as const, text: note.body, items: [], columns: [], rows: [] }]
-            : [];
-        const next = { title: note.title, color: note.color, pinned: note.pinned, blocks };
-        draftRef.current = next;
-        setDraft(next);
-      })
-      .catch((error) => {
+    if (loadedId.current !== id) {
+      loadedId.current = id;
+      edited.current = false;
+      draftRef.current = null;
+      setDraft(null);
+    }
+    let active = true;
+    void (async () => {
+      if (user?.id) {
+        const cached = await readNotesCache(user.id);
+        const found = cached?.find((item) => item.id === id);
+        if (active && found) applyNote(found, true);
+      }
+      try {
+        const note = await api.getNote(id);
+        if (active) applyNote(note, !edited.current);
+      } catch (error) {
+        if (!active || draftRef.current) return;
         showToast(getErrorMessage(error));
         goBack('/(app)/notes');
-      });
-  }, [id]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [id, user?.id]);
 
   const saveNow = async (next: Draft) => {
     if (!id) return;
     await api.updateNote(id, { ...next, body: preview(next.blocks), blocks: next.blocks });
+    if (user?.id) {
+      const cached = await readNotesCache(user.id);
+      if (cached) {
+        await writeNotesCache(
+          user.id,
+          cached.map((item) => (item.id === id ? { ...item, title: next.title, body: preview(next.blocks), color: next.color, pinned: next.pinned, blocks: next.blocks } : item)),
+        );
+      }
+    }
   };
 
   const schedule = (next: Draft) => {
+    edited.current = true;
     draftRef.current = next;
     setDraft(next);
     if (timer.current) clearTimeout(timer.current);
@@ -160,12 +199,21 @@ export default function NoteScreen() {
           </View>
         </View>
         <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 72 }]} keyboardShouldPersistTaps="handled">
-          <TextInput value={draft.title} onChangeText={(title) => schedule({ ...draft, title })} placeholder="Заголовок" placeholderTextColor={colors.inkMuted} style={styles.title} />
+          <TextInput
+            value={draft.title}
+            onChangeText={(title) => schedule({ ...draft, title: title.slice(0, 200) })}
+            placeholder="Заголовок"
+            placeholderTextColor={colors.inkMuted}
+            maxLength={200}
+            underlineColorAndroid="transparent"
+            style={[styles.title, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null]}
+          />
           {draft.blocks.map((block) => (
             <NoteBlockView
               key={block.id}
               block={block}
               focusId={focusId}
+              removable={block.type !== 'text'}
               onChange={changeBlock}
               onRemove={() => schedule({ ...draft, blocks: draft.blocks.filter((item) => item.id !== block.id) })}
               onFocus={setFocusId}
@@ -218,12 +266,14 @@ export default function NoteScreen() {
 function NoteBlockView({
   block,
   focusId,
+  removable = true,
   onChange,
   onRemove,
   onFocus,
 }: {
   block: NoteBlock;
   focusId: string | null;
+  removable?: boolean;
   onChange: (block: NoteBlock) => void;
   onRemove: () => void;
   onFocus: (id: string) => void;
@@ -239,18 +289,30 @@ function NoteBlockView({
       </View>
     );
   }
-  if (block.type === 'heading' || block.type === 'text') {
+  if (block.type === 'text') {
+    const spans = block.spans?.length ? block.spans : block.text ? [{ text: block.text, ...block.style }] : [];
+    return (
+      <View style={styles.blockRow}>
+        <RichNote
+          spans={spans}
+          onChange={(next) => onChange({ ...block, text: next.map((span) => span.text).join('').slice(0, 10_000), spans: next, style: undefined })}
+        />
+      </View>
+    );
+  }
+  if (block.type === 'heading') {
     return (
       <View style={styles.blockRow}>
         <TextInput
           value={block.text}
-          onChangeText={(text) => onChange({ ...block, text })}
-          placeholder={block.type === 'heading' ? 'Заголовок' : 'Текст'}
+          onChangeText={(text) => onChange({ ...block, text: text.slice(0, 200) })}
+          placeholder="Заголовок"
           placeholderTextColor={colors.inkMuted}
-          multiline={block.type === 'text'}
-          style={[styles.input, block.type === 'heading' && styles.headingInput, styles.flex]}
+          maxLength={200}
+          underlineColorAndroid="transparent"
+          style={[styles.input, styles.headingInput, styles.flex]}
         />
-        <Close onPress={onRemove} />
+        {removable ? <Close onPress={onRemove} /> : null}
       </View>
     );
   }
@@ -268,7 +330,8 @@ function NoteBlockView({
                   <TextInput
                     key={`h-${index}`}
                     value={column}
-                    onChangeText={(value) => onChange({ ...block, columns: block.columns.map((item, place) => (place === index ? value : item)) })}
+                    onChangeText={(value) => onChange({ ...block, columns: block.columns.map((item, place) => (place === index ? value.slice(0, 80) : item)) })}
+                    maxLength={80}
                     placeholder="Столбец"
                     placeholderTextColor={colors.inkMuted}
                     style={[styles.cell, styles.headCell]}
@@ -278,7 +341,7 @@ function NoteBlockView({
               {block.rows.map((row, rowIndex) => (
                 <View key={`r-${rowIndex}`} style={styles.tableRow}>
                   {block.columns.map((_, columnIndex) => (
-                    <TextInput key={`c-${rowIndex}-${columnIndex}`} value={row[columnIndex] ?? ''} onChangeText={(value) => setCell(rowIndex, columnIndex, value)} style={styles.cell} />
+                    <TextInput key={`c-${rowIndex}-${columnIndex}`} value={row[columnIndex] ?? ''} maxLength={200} onChangeText={(value) => setCell(rowIndex, columnIndex, value.slice(0, 200))} style={styles.cell} />
                   ))}
                 </View>
               ))}
@@ -307,13 +370,6 @@ function NoteBlockView({
       onFocus(focus.id);
       requestAnimationFrame(() => itemRefs.current[focus.id]?.focus());
     }
-  };
-  const eraseItem = (item: (typeof block.items)[number]) => {
-    if (item.done || item.text.length === 0) {
-      dropItem(item.id);
-      return;
-    }
-    onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text: entry.text.slice(0, -1) } : entry)) });
   };
   return (
     <View style={styles.blockRow}>
@@ -349,25 +405,34 @@ function NoteBlockView({
                   dropItem(item.id);
                   return;
                 }
-                onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text } : entry)) });
+                onChange({ ...block, items: block.items.map((entry) => (entry.id === item.id ? { ...entry, text: text.slice(0, 2000) } : entry)) });
               }}
               onSubmitEditing={() => {
-                if (block.type !== 'todo') return;
                 const id = blockId();
+                const created = { id, text: '', done: false };
+                const items = [...block.items];
+                items.splice(index + 1, 0, created);
                 onFocus(id);
-                onChange({ ...block, items: [...block.items, { id, text: '', done: false }] });
+                onChange({ ...block, items });
               }}
               placeholder="Пункт"
               placeholderTextColor={colors.inkMuted}
-              returnKeyType={block.type === 'todo' ? 'next' : 'default'}
-              blurOnSubmit={block.type !== 'todo'}
+              maxLength={2000}
+              returnKeyType="next"
+              blurOnSubmit={false}
               style={[styles.itemInput, item.done && styles.done]}
             />
-            {block.type === 'todo' ? (
-              <Pressable accessibilityLabel="Стереть" hitSlop={6} onPress={() => eraseItem(item)}>
-                <Ionicons name="backspace-outline" size={18} color={colors.textSecondary} />
-              </Pressable>
-            ) : null}
+            <Pressable
+              accessibilityLabel="Удалить пункт"
+              hitSlop={6}
+              onPress={() => {
+                const next = block.items.filter((entry) => entry.id !== item.id);
+                if (!next.length) onRemove();
+                else onChange({ ...block, items: next });
+              }}
+            >
+              <Ionicons name="close" size={18} color={colors.textSecondary} />
+            </Pressable>
           </View>
         ))}
         <Pressable
@@ -380,7 +445,6 @@ function NoteBlockView({
           <Text style={[styles.action, { color: theme.primary }]}>+ пункт</Text>
         </Pressable>
       </View>
-      <Close onPress={onRemove} />
     </View>
   );
 }
@@ -400,7 +464,10 @@ const styles = StyleSheet.create({
   backText: { fontSize: 16, fontWeight: '600', color: colors.text },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   body: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-  title: { fontSize: 28, fontWeight: '800', color: colors.ink, paddingVertical: spacing.sm },
+  title: { fontSize: 28, fontWeight: '800', color: colors.ink, paddingVertical: spacing.sm, paddingHorizontal: 0, backgroundColor: 'transparent', borderWidth: 0 },
+  styleBar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm },
+  styleMark: { fontSize: 16, minWidth: 28, textAlign: 'center' },
+  bodyInput: { minHeight: 88, paddingVertical: spacing.sm, color: colors.ink, backgroundColor: 'transparent', textAlignVertical: 'top' },
   colors: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.md },
   color: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.border },
   colorOn: { borderWidth: 3, borderColor: colors.text },

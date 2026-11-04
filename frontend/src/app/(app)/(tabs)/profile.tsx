@@ -57,7 +57,6 @@ export default function ProfileScreen() {
 
           <Entry title="Задачи" onPress={openTasks} />
           <Entry title="Списки" onPress={() => router.push('/(app)/lists' as Href)} />
-          <Entry title="Проекты" onPress={() => router.push('/(app)/projects' as Href)} />
           <Entry title="Заметки" onPress={() => router.push('/(app)/notes' as Href)} />
           <Text style={styles.section}>Настройки</Text>
           <View style={styles.settings}>

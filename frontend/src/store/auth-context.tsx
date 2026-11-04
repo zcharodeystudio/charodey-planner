@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { api, clearSession, readStoredUser, saveSession, type User } from '@/api/client';
+import { warmStore } from '@/lib/kv';
 import { getItem } from '@/lib/storage';
 
 type Status = 'loading' | 'authed' | 'guest';
@@ -24,24 +25,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let active = true;
     (async () => {
       const access = await getItem('accessToken');
-      if (!access) {
+      const stored = access ? await readStoredUser() : null;
+      if (!access || !stored) {
         if (active) setStatus('guest');
+        if (!access && stored) await clearSession();
         return;
       }
+      await warmStore();
+      if (!active) return;
+      setUser(stored);
+      setStatus('authed');
       try {
         const profile = await api.profile();
         if (!active) return;
         setUser(profile);
-        setStatus('authed');
       } catch {
-        const stored = await readStoredUser();
         if (!active) return;
-        if (stored && (await getItem('accessToken'))) {
-          setUser(stored);
-          setStatus('authed');
+        const still = await getItem('accessToken');
+        const kept = still ? await readStoredUser() : null;
+        if (kept) {
+          setUser(kept);
           return;
         }
-        await clearSession();
         setUser(null);
         setStatus('guest');
       }

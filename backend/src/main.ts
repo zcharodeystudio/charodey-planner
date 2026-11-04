@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationError } from 'class-validator';
+import { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { getJwtSecret } from './config/jwt-secret';
@@ -13,7 +14,10 @@ async function bootstrap() {
   const isProd = process.env.NODE_ENV === 'production';
   const app = await NestFactory.create(AppModule, {
     logger: isProd ? ['error', 'warn', 'log'] : undefined,
+    bodyParser: false,
   });
+  app.use(json({ limit: '25mb' }));
+  app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.enableShutdownHooks();
 
   if (process.env.TRUST_PROXY === '1' || process.env.RENDER === 'true') {

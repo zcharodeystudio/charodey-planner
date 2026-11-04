@@ -15,6 +15,7 @@
       }
     },
     "android": {
+      "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "pan",
       "package": "com.charodey.planner",
       "permissions": [
@@ -54,7 +55,8 @@
           "color": "#E8B423",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": false

@@ -12,9 +12,6 @@ type TaskCardProps = {
   listColor?: string;
   listName?: string;
   onOpenList?: () => void;
-  projectColor?: string;
-  projectName?: string;
-  onOpenProject?: () => void;
   onPress: () => void;
   onToggle: () => void;
   onFavorite: () => void;
@@ -22,7 +19,7 @@ type TaskCardProps = {
   onToggleStep?: (stepId: string) => void;
 };
 
-export function TaskCard({ task, listColor, listName, onOpenList, projectColor, projectName, onOpenProject, onPress, onToggle, onFavorite, onImportant, onToggleStep }: TaskCardProps) {
+export function TaskCard({ task, listColor, listName, onOpenList, onPress, onToggle, onFavorite, onImportant, onToggleStep }: TaskCardProps) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
   const steps = task.steps ?? [];
@@ -57,14 +54,6 @@ export function TaskCard({ task, listColor, listName, onOpenList, projectColor, 
             </Text>
           ) : null}
           <View style={styles.meta}>
-            {projectName ? (
-              <Pressable onPress={onOpenProject} hitSlop={6} style={[styles.listBadge, { backgroundColor: projectColor ?? theme.primaryMuted }]}>
-                <Ionicons name="albums" size={11} color={colors.ink} />
-                <Text style={styles.listBadgeText} numberOfLines={1}>
-                  {projectName}
-                </Text>
-              </Pressable>
-            ) : null}
             {listName ? (
               <Pressable onPress={onOpenList} hitSlop={6} style={[styles.listBadge, { backgroundColor: listColor ?? theme.primaryMuted }]}>
                 <Text style={styles.listBadgeText} numberOfLines={1}>

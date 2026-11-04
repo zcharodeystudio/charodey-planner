@@ -102,29 +102,24 @@ export type TaskPayload = {
   statusId?: string | null;
 };
 
-export type ProjectBlockType = 'heading' | 'text' | 'bullet' | 'number' | 'todo' | 'divider' | 'table' | 'board' | 'page';
-export type ProjectBlockItem = { id: string; text: string; done?: boolean };
-export type ProjectPageLink = { id: string; title: string };
-export type ProjectBlock = {
-  id: string;
-  type: ProjectBlockType;
-  text: string;
-  items: ProjectBlockItem[];
-  columns: string[];
-  rows: string[][];
-  boardId: string | null;
-  pageId: string | null;
+export type NoteBlockItem = { id: string; text: string; done?: boolean };
+export type NoteTextStyle = {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  size?: 's' | 'm' | 'l' | '12' | '14' | '16' | '18' | '22' | '28' | '36';
+  font?: 'sans' | 'serif' | 'times' | 'script' | 'mono';
 };
-export type ProjectItem = { id: string; name: string; color: string; boards?: BoardItem[] };
-export type BoardColumn = { id: string; name: string };
-export type BoardItem = { id: string; projectId: string; name: string; columns: BoardColumn[] };
+export type NoteSpan = NoteTextStyle & { text: string };
 export type NoteBlock = {
   id: string;
   type: 'heading' | 'text' | 'bullet' | 'number' | 'todo' | 'table' | 'divider';
   text: string;
-  items: ProjectBlockItem[];
+  items: NoteBlockItem[];
   columns: string[];
   rows: string[][];
+  style?: NoteTextStyle;
+  spans?: NoteSpan[];
 };
 export type NoteItem = {
   id: string;
@@ -307,55 +302,6 @@ export const api = {
   },
   deleteList(id: string) {
     return request<{ ok: boolean }>(`/lists/${id}`, { method: 'DELETE' });
-  },
-  projects() {
-    return request<ProjectItem[]>('/projects');
-  },
-  createProject(body: { name: string; color: string }) {
-    return request<ProjectItem>('/projects', { method: 'POST', body: JSON.stringify(body) });
-  },
-  deleteProject(id: string) {
-    return request<{ ok: boolean }>(`/projects/${id}`, { method: 'DELETE' });
-  },
-  project(id: string) {
-    return request<{ project: ProjectItem; boards: BoardItem[]; blocks: ProjectBlock[]; pages: ProjectPageLink[] }>(`/projects/${id}`);
-  },
-  projectPage(projectId: string, pageId: string) {
-    return request<{ project: ProjectItem; page: ProjectPageLink; boards: BoardItem[]; blocks: ProjectBlock[]; pages: ProjectPageLink[] }>(
-      `/projects/${projectId}/pages/${pageId}`,
-    );
-  },
-  updatePage(projectId: string, pageId: string, title: string) {
-    return request<ProjectPageLink>(`/projects/${projectId}/pages/${pageId}`, { method: 'PATCH', body: JSON.stringify({ title }) });
-  },
-  deletePage(projectId: string, pageId: string) {
-    return request<{ ok: boolean }>(`/projects/${projectId}/pages/${pageId}`, { method: 'DELETE' });
-  },
-  addBlock(projectId: string, type: ProjectBlockType, options?: { name?: string; parentPageId?: string; targetPageId?: string }) {
-    return request<{ block: ProjectBlock; board?: BoardItem; page?: ProjectPageLink }>(`/projects/${projectId}/blocks`, {
-      method: 'POST',
-      body: JSON.stringify({ type, name: options?.name, parentPageId: options?.parentPageId, targetPageId: options?.targetPageId }),
-    });
-  },
-  updateBlock(projectId: string, blockId: string, body: Partial<Pick<ProjectBlock, 'text' | 'items' | 'columns' | 'rows'>>, parentPageId?: string) {
-    const parent = parentPageId ? `?parent=${encodeURIComponent(parentPageId)}` : '';
-    return request<ProjectBlock>(`/projects/${projectId}/blocks/${blockId}${parent}`, { method: 'PATCH', body: JSON.stringify(body) });
-  },
-  deleteBlock(projectId: string, blockId: string, parentPageId?: string) {
-    const parent = parentPageId ? `?parent=${encodeURIComponent(parentPageId)}` : '';
-    return request<{ ok: boolean }>(`/projects/${projectId}/blocks/${blockId}${parent}`, { method: 'DELETE' });
-  },
-  createBoard(projectId: string, name: string) {
-    return request<BoardItem>(`/projects/${projectId}/boards`, { method: 'POST', body: JSON.stringify({ name }) });
-  },
-  board(id: string) {
-    return request<{ board: BoardItem; tasks: Task[] }>(`/boards/${id}`);
-  },
-  addBoardColumn(id: string, name: string) {
-    return request<BoardItem>(`/boards/${id}/columns`, { method: 'POST', body: JSON.stringify({ name }) });
-  },
-  deleteBoard(id: string) {
-    return request<{ ok: boolean }>(`/boards/${id}`, { method: 'DELETE' });
   },
   notes() {
     return request<NoteItem[]>('/notes');
